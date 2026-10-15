@@ -37,7 +37,7 @@ export default defineConfig({
   manifest: {
     name: 'Nudge',
     description: 'A fast, conversational browser assistant that acts with you in control.',
-    permissions: ['activeTab', 'scripting', 'sidePanel', 'storage'],
+    permissions: ['activeTab', 'scripting', 'sidePanel', 'storage', 'tabs'],
     host_permissions: ['http://*/*', 'https://*/*'],
     action: { default_title: 'Open Nudge' },
     side_panel: { default_path: 'sidepanel.html' },

@@ -8,6 +8,9 @@ describe('extension host permissions', () => {
       host_permissions: ['http://*/*', 'https://*/*'],
     });
     expect(config.manifest).not.toHaveProperty('optional_host_permissions');
+    expect(config.manifest).toMatchObject({
+      permissions: expect.arrayContaining(['tabs']),
+    });
   });
 
   it('loads the repository environment and validates the pairing secret', async () => {
