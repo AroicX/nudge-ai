@@ -1,14 +1,14 @@
 import type { ActionCategory, ToolCall } from '@nudge/contracts';
 
 export interface RiskTarget {
-  kind?: string;
-  role?: string;
-  name?: string;
-  text?: string;
-  label?: string;
-  inputType?: string;
-  autocomplete?: string;
-  formHasSensitiveField?: boolean;
+  kind?: string | undefined;
+  role?: string | undefined;
+  name?: string | undefined;
+  text?: string | undefined;
+  label?: string | undefined;
+  inputType?: string | undefined;
+  autocomplete?: string | undefined;
+  formHasSensitiveField?: boolean | undefined;
 }
 
 export interface RiskAssessment {
