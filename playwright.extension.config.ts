@@ -12,7 +12,7 @@ export const PAIRING_SECRET = env.NUDGE_PAIRING_SECRET ?? '';
  */
 export default defineConfig({
   testDir: './tests/browser',
-  testMatch: ['**/accept-*.spec.ts', '**/fixtures-smoke.spec.ts'],
+  testMatch: ['**/accept-*.spec.ts', '**/fixtures-smoke.spec.ts', '**/*.accept-tmp.spec.ts'],
   globalSetup: './tests/browser/helpers/global-setup.ts',
   workers: 1,
   timeout: 120_000,

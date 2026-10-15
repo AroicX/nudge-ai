@@ -99,6 +99,7 @@ interface Task {
   frame?: ScreenshotFrame | undefined;
   wantScreenshot: boolean;
   pendingPreview?: OperationPreview | undefined;
+  lastPreview?: OperationPreview | undefined;
   confirmation?: Confirmation | undefined;
   pendingQuestion?: string | undefined;
   fallbackOffer?: { reason: string } | undefined;
@@ -589,6 +590,7 @@ export class TaskController {
       this.#timeline(task, `plan_${task.stepCount}`, 'Discarded a step planned before your change', 'completed');
       return;
     }
+    task.timeline = task.timeline.filter((item) => item.id !== `${task.id}:plan_${task.stepCount}`);
     task.stepCount += 1;
     if (response.planUpdate) {
       const before = task.memory.plan;
@@ -859,16 +861,19 @@ export class TaskController {
   #handlePolicy(task: Task, call: ToolCall, policy: PolicyOutcome, label: string): void {
     if (policy.decision === 'confirm') {
       const selected = selection(task.snapshot);
+      const target = 'elementId' in call && call.elementId ? task.snapshot?.elements.find((element) => element.id === call.elementId) : undefined;
+      // Re-preview the same operation in the user's terms when the target set changed.
+      const previous = task.lastPreview;
       this.#preview(
         task,
         {
-          operation: label,
-          location: task.snapshot?.title || task.snapshot?.url || 'this page',
-          criteria: task.instruction.slice(0, 1_000),
+          operation: previous?.operation ?? (target?.name ?? label).slice(0, 200),
+          location: previous?.location ?? (task.snapshot?.title || task.snapshot?.url || 'this page'),
+          criteria: previous?.criteria ?? task.instruction.slice(0, 1_000),
           count: Math.max(1, selected.length),
           samples: selected.slice(0, 5),
-          reversible: policy.category === 'move_reversible',
-          permanent: policy.category === 'delete_permanent',
+          reversible: previous?.reversible ?? policy.category === 'move_reversible',
+          permanent: previous?.permanent ?? policy.category === 'delete_permanent',
         },
         task.snapshot,
       );
@@ -898,6 +903,7 @@ export class TaskController {
       targetFingerprint: selected.length ? targetFingerprint(selected) : targetFingerprint([...proposal.samples, `count:${proposal.count}`]),
     };
     task.pendingPreview = preview;
+    task.lastPreview = preview;
     task.confirmation = undefined;
     this.#set('need_confirm');
     this.#timeline(task, `preview_${task.stepCount}`, `Waiting for your OK: ${preview.operation} (${preview.count})`, 'active');

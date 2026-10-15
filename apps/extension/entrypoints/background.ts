@@ -66,21 +66,25 @@ export default defineBackground(() => {
 
   browser.runtime.onConnect.addListener((port) => bridge.connect(port as unknown as PortLike));
 
-  browser.runtime.onMessage.addListener((input: unknown, sender) => {
+  browser.runtime.onMessage.addListener((input: unknown, sender, sendResponse: (response: unknown) => void) => {
     const event = ContentEventSchema.safeParse(input);
     if (event.success) {
       if (sender.tab?.id !== undefined) controller.timedEnded(event.data.repeatId, event.data.reason);
       return undefined;
     }
     const parsed = ExtensionMessageSchema.safeParse(input);
-    if (!parsed.success) return Promise.resolve({ ok: false, error: 'invalid-message' });
+    if (!parsed.success) return undefined;
     if (parsed.data.type === 'sidepanel.open') {
       const tabId = sender.tab?.id;
-      if (tabId === undefined) return Promise.resolve({ ok: false, error: 'unsupported-page' });
-      return browser.sidePanel.open({ tabId }).then(
-        () => ({ ok: true }),
-        () => ({ ok: false, error: 'use-toolbar-button' }),
+      if (tabId === undefined) {
+        sendResponse({ ok: false, error: 'unsupported-page' });
+        return undefined;
+      }
+      browser.sidePanel.open({ tabId }).then(
+        () => sendResponse({ ok: true }),
+        () => sendResponse({ ok: false, error: 'use-toolbar-button' }),
       );
+      return true;
     }
     return undefined;
   });

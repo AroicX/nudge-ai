@@ -22,9 +22,14 @@ export default defineContentScript({
       },
     });
 
-    browser.runtime.onMessage.addListener((input: unknown) => {
+    // Respond via sendResponse + `return true`: Chrome does not reliably resolve promise returns here.
+    browser.runtime.onMessage.addListener((input: unknown, _sender, sendResponse: (response: unknown) => void) => {
       const request = ContentRequestSchema.safeParse(input);
-      return request.success ? adapter.handle(request.data) : undefined;
+      if (!request.success) return undefined;
+      adapter.handle(request.data).then(sendResponse, (error: unknown) =>
+        sendResponse({ ok: false, detail: error instanceof Error ? error.message.slice(0, 500) : 'Content error.', changed: false, documentId: 'unknown' }),
+      );
+      return true;
     });
 
     mountLauncher({

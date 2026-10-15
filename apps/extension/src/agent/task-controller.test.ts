@@ -159,6 +159,7 @@ describe('TaskController', () => {
     expect(browser.executes()).toHaveLength(0);
     expect(second.status).toBe('waiting_for_confirmation');
     expect(second.pendingPreview!.count).toBe(4);
+    expect(second.pendingPreview).toMatchObject({ operation: 'Move to Trash', location: 'Inbox', criteria: 'invoice' });
     controller.confirm(second.pendingPreview!.previewId, true);
     await controller.idle();
     expect(browser.executes().map((entry) => entry.call.tool)).toEqual(['click']);
