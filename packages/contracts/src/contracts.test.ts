@@ -2,10 +2,17 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AgentDecisionSchema,
+  BrowserContextSchema,
   BrowserActionSchema,
   ExtensionMessageSchema,
   PageSnapshotSchema,
+  PersistedConversationSchema,
+  ProviderCapabilitiesSchema,
+  ProviderSelectionSchema,
+  SourceReferenceSchema,
+  SwitchTabDecisionSchema,
   TaskStateSchema,
+  TimelineStepSchema,
 } from './index';
 
 const page = {
@@ -156,5 +163,74 @@ describe('ExtensionMessageSchema', () => {
         unexpected: true,
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('browser-wide contracts', () => {
+  const tab = {
+    tabId: 7,
+    windowId: 1,
+    active: false,
+    url: 'https://mail.example.test/inbox',
+    title: 'Inbox',
+    domain: 'mail.example.test',
+    favIconUrl: 'https://mail.example.test/favicon.ico',
+    discarded: false,
+    lastSeenAt: '2026-10-15T18:00:00.000Z',
+  };
+
+  it('accepts only bounded HTTP sources', () => {
+    expect(SourceReferenceSchema.safeParse(tab).success).toBe(true);
+    expect(SourceReferenceSchema.safeParse({ ...tab, url: 'chrome://settings' }).success).toBe(false);
+    expect(SourceReferenceSchema.safeParse({ ...tab, title: 'x'.repeat(501) }).success).toBe(false);
+    expect(SourceReferenceSchema.safeParse({ ...tab, domain: 'x'.repeat(254) }).success).toBe(false);
+    expect(SourceReferenceSchema.safeParse({ ...tab, favIconUrl: 'x'.repeat(2_001) }).success).toBe(false);
+  });
+
+  it('keeps persisted turns strict and free of sensitive payload fields', () => {
+    const conversation = {
+      version: 1,
+      turns: [{
+        id: 'turn_1',
+        role: 'assistant',
+        text: 'Found the message.',
+        createdAt: '2026-10-15T18:00:00.000Z',
+        provider: 'ollama',
+        model: 'qwen3',
+        sources: [tab],
+      }],
+      timeline: [],
+    };
+    expect(PersistedConversationSchema.safeParse(conversation).success).toBe(true);
+    for (const forbidden of ['otp', 'password', 'apiKey', 'snapshot']) {
+      expect(
+        PersistedConversationSchema.safeParse({ ...conversation, [forbidden]: 'secret' }).success,
+      ).toBe(false);
+    }
+    expect(
+      PersistedConversationSchema.safeParse({
+        ...conversation,
+        turns: [{ ...conversation.turns[0], otp: '123456' }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('bounds sources, tabs, and timeline statuses', () => {
+    expect(TimelineStepSchema.safeParse({ id: 'step_1', label: 'Opening Gmail', status: 'active' }).success).toBe(true);
+    expect(TimelineStepSchema.safeParse({ id: 'step_1', label: 'Opening Gmail', status: 'thinking' }).success).toBe(false);
+    expect(BrowserContextSchema.safeParse({ tabs: [tab], originTab: tab, currentTabId: 7 }).success).toBe(true);
+    expect(BrowserContextSchema.safeParse({ tabs: Array.from({ length: 101 }, () => tab), currentTabId: 7 }).success).toBe(false);
+  });
+
+  it('validates provider choices and capabilities', () => {
+    expect(ProviderSelectionSchema.safeParse({ provider: 'openai' }).success).toBe(true);
+    expect(ProviderSelectionSchema.safeParse({ provider: 'ollama', baseUrl: 'http://127.0.0.1:11434', model: 'qwen3' }).success).toBe(true);
+    expect(ProviderSelectionSchema.safeParse({ provider: 'anthropic' }).success).toBe(false);
+    expect(ProviderCapabilitiesSchema.safeParse({ browserTools: true, realtimeVoice: false, dictation: true }).success).toBe(true);
+  });
+
+  it('switches only to an inventoried tab identifier', () => {
+    expect(SwitchTabDecisionSchema.safeParse({ type: 'switch_tab', taskId: 'task_1', tabId: 7, reason: 'Open Gmail' }).success).toBe(true);
+    expect(SwitchTabDecisionSchema.safeParse({ type: 'switch_tab', taskId: 'task_1', url: 'https://mail.example.test' }).success).toBe(false);
   });
 });

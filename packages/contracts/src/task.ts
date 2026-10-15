@@ -91,6 +91,13 @@ const EvidenceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('page_text'), text: z.string().min(1).max(2_000) }).strict(),
 ]);
 
+export const SwitchTabDecisionSchema = z.object({
+  type: z.literal('switch_tab'),
+  taskId: z.string().min(1).max(120),
+  tabId: z.number().int().nonnegative(),
+  reason: z.string().min(1).max(500),
+}).strict();
+
 export const AgentDecisionSchema = z.discriminatedUnion('type', [
   z
     .object({
@@ -117,6 +124,7 @@ export const AgentDecisionSchema = z.discriminatedUnion('type', [
       evidence: z.array(EvidenceSchema).min(1).max(20),
     })
     .strict(),
+  SwitchTabDecisionSchema,
 ]);
 
 export type IntentCategory = z.infer<typeof IntentCategorySchema>;
@@ -125,3 +133,4 @@ export type TaskConstraint = z.infer<typeof TaskConstraintSchema>;
 export type TaskState = z.infer<typeof TaskStateSchema>;
 export type TaskEvent = z.infer<typeof TaskEventSchema>;
 export type AgentDecision = z.infer<typeof AgentDecisionSchema>;
+export type SwitchTabDecision = z.infer<typeof SwitchTabDecisionSchema>;

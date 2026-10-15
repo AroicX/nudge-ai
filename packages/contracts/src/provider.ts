@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { PageSnapshotSchema } from './page';
 import { AgentDecisionSchema, TaskStateSchema } from './task';
+import { BrowserContextSchema } from './browser-context';
 
 export const ConversationTurnSchema = z
   .object({
@@ -21,6 +22,7 @@ export const AgentStepRequestSchema = z
     conversation: z.array(ConversationTurnSchema).max(30),
     page: PageSnapshotSchema,
     task: TaskStateSchema.nullable(),
+    browserContext: BrowserContextSchema.optional(),
   })
   .strict();
 
