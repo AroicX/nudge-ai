@@ -18,7 +18,8 @@
     "test:browser": "playwright test",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test:accept": "playwright test -c playwright.extension.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

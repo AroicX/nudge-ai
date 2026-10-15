@@ -32,7 +32,11 @@ function requirePairingSecret() {
 // pointer/keyboard input on the task's own tab, attached on demand and detached afterwards.
 const permissions = ['activeTab', 'scripting', 'sidePanel', 'storage', 'tabs', 'debugger'];
 
+// E2E builds (WXT_PUBLIC_NUDGE_E2E=1) expose test hooks in the side panel and go to a separate folder.
+const e2e = process.env.WXT_PUBLIC_NUDGE_E2E === '1';
+
 export default defineConfig({
+  ...(e2e ? { outDir: '.output-e2e' } : {}),
   modules: ['@wxt-dev/module-react'],
   vite: () => ({
     envDir: '../..',
