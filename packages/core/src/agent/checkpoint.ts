@@ -13,6 +13,7 @@ export interface Checkpoint {
   generation: number;
   instructionVersion: number;
   inFlight?: { tool: string; fingerprint: string } | undefined;
+  boundTabId?: number | undefined;
 }
 
 export interface CheckpointInput {
@@ -24,6 +25,7 @@ export interface CheckpointInput {
   generation: number;
   instructionVersion: number;
   inFlight?: { tool: string; fingerprint: string } | undefined;
+  boundTabId?: number | undefined;
 }
 
 const safe = (text: string) => redactText(text).slice(0, 2_000);
@@ -51,6 +53,7 @@ export function toCheckpoint(input: CheckpointInput): Checkpoint {
     generation: input.generation,
     instructionVersion: input.instructionVersion,
     ...(input.inFlight ? { inFlight: input.inFlight } : {}),
+    ...(input.boundTabId !== undefined ? { boundTabId: input.boundTabId } : {}),
   };
 }
 

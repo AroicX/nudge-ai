@@ -27,6 +27,8 @@ export const ControllerSnapshotSchema = z
     authorization: AuthorizationRecordSchema.optional(),
     timeline: z.array(TimelineStepSchema).max(100),
     statusText: z.string().max(500).optional(),
+    fallbackOffer: z.object({ reason: z.string().min(1).max(1_000) }).strict().optional(),
+    records: z.number().int().nonnegative().optional(),
   })
   .strict();
 
@@ -47,6 +49,7 @@ export const PanelMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('capability_granted'), capability: z.literal('trusted_input') }).strict(),
   z.object({ type: z.literal('request_export'), format: z.enum(['csv', 'xlsx']) }).strict(),
   z.object({ type: z.literal('hello') }).strict(),
+  z.object({ type: z.literal('approve_fallback'), approved: z.boolean() }).strict(),
 ]);
 
 export const ControllerMessageSchema = z.discriminatedUnion('type', [
