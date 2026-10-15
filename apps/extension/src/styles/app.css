@@ -410,6 +410,28 @@ header p {
 .settings-modal__actions button {
   font-weight: 650;
 }
+.provider-choice {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 18px;
+}
+.ollama-settings {
+  display: grid;
+  gap: 8px;
+}
+.ollama-settings select {
+  border: 1px solid #cbd1df;
+  border-radius: 10px;
+  font: inherit;
+  padding: 10px;
+}
+.provider-warning {
+  background: #fffaeb;
+  border-radius: 10px;
+  color: #854a0e !important;
+  padding: 10px;
+}
 @import 'tailwindcss';
 
 @import 'tailwindcss';

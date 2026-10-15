@@ -5,12 +5,13 @@ import type {
   SourceReference,
   VoiceSessionState,
   TimelineStep,
+  ProviderSelection,
 } from '@nudge/contracts';
 import { Check, Copy, Settings } from 'lucide-react';
 import { useState } from 'react';
 
 import { Composer } from './Composer';
-import { ProviderSettings } from './ProviderSettings';
+import { ProviderSettings, type ProviderHealth } from './ProviderSettings';
 import { Status } from './Status';
 import { LiveTranscript } from './LiveTranscript';
 import { ExecutionTimeline } from './ExecutionTimeline';
@@ -39,6 +40,10 @@ interface SidePanelProps {
   showRealtimeVoice?: boolean;
   onOpenSource?: (source: SourceReference) => void;
   timeline?: TimelineStep[];
+  providerSelection?: ProviderSelection;
+  providerHealth?: ProviderHealth | undefined;
+  onProviderSelection?: (value: ProviderSelection) => void;
+  onRefreshProviders?: () => void;
 }
 
 export function SidePanel({
@@ -59,6 +64,10 @@ export function SidePanel({
   showRealtimeVoice = true,
   onOpenSource = () => undefined,
   timeline = [],
+  providerSelection = { provider: 'openai' },
+  providerHealth,
+  onProviderSelection = () => undefined,
+  onRefreshProviders = () => undefined,
 }: SidePanelProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string>();
@@ -156,6 +165,10 @@ export function SidePanel({
         onClose={() => setSettingsOpen(false)}
         onSave={onSaveKey}
         onClear={onClearKey}
+        selection={providerSelection}
+        health={providerHealth}
+        onSelection={onProviderSelection}
+        onRefresh={onRefreshProviders}
       />
     </main>
   );

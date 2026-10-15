@@ -2,11 +2,14 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 import OpenAI from 'openai';
+import type { ProviderSelection } from '@nudge/contracts';
 
 import { pairingGuard } from './auth/pairing';
 import { loadConfig } from './config';
 import type { DecisionProviderFactory } from './providers/decision-provider';
 import { OpenAIDecisionProvider } from './providers/openai-provider';
+import { OllamaDecisionProvider } from './providers/ollama-provider';
+import { ProviderRouter } from './providers/provider-router';
 import { registerAgentStepRoute } from './routes/agent-step';
 import {
   OpenAIAudioTranscriber,
@@ -15,6 +18,7 @@ import {
 } from './routes/audio-transcribe';
 import { registerHealthRoute } from './routes/health';
 import { registerProviderSettingsRoutes } from './routes/provider-settings';
+import { registerProviderHealthRoute } from './routes/provider-health';
 import {
   OpenAIRealtimeSessionIssuer,
   registerRealtimeSessionRoute,
@@ -44,6 +48,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     bodyLimit: options.bodyLimit ?? 256_000,
   });
   let sessionKey: string | undefined;
+  let selection: ProviderSelection = { provider: 'openai' };
   const authenticate = pairingGuard(config.pairingSecret);
   const providerFactory =
     options.providerFactory ??
@@ -66,10 +71,18 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       setSessionKey: (value) => {
         sessionKey = value;
       },
+      setSelection: (value) => {
+        selection = value;
+      },
     });
+    registerProviderHealthRoute(protectedRoutes, { authenticate });
+    const router = new ProviderRouter(
+      () => providerFactory(sessionKey ?? config.openAIApiKey),
+      (baseUrl, model) => new OllamaDecisionProvider(baseUrl, model),
+    );
     registerAgentStepRoute(protectedRoutes, {
       authenticate,
-      providerFactory,
+      providerFactory: () => router.create(selection),
       getApiKey: () => sessionKey ?? config.openAIApiKey,
       timeoutMs: options.requestTimeoutMs ?? 20_000,
       rateLimitMax: options.rateLimitMax ?? 30,

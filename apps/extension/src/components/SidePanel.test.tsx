@@ -38,7 +38,7 @@ describe('SidePanel', () => {
     );
     expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
-    expect(screen.getByRole('dialog', { name: 'OpenAI settings' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Provider settings' })).toBeTruthy();
     fireEvent.change(screen.getByLabelText('OpenAI API key'), {
       target: { value: 'sk-session-test' },
     });
@@ -144,5 +144,36 @@ describe('SidePanel', () => {
       screen.getByRole('button', { name: 'Open Netflix payment reminder on mail.google.com' }),
     );
     expect(onOpenSource).toHaveBeenCalledWith(expect.objectContaining({ tabId: 3 }));
+  });
+
+  it('selects Ollama, shows empty-model guidance, and keeps dictation without realtime voice', () => {
+    const onProviderSelection = vi.fn();
+    render(
+      <SidePanel
+        busy={false}
+        showRealtimeVoice={false}
+        providerSelection={{
+          provider: 'ollama',
+          baseUrl: 'http://127.0.0.1:11434',
+          model: 'qwen3',
+        }}
+        providerHealth={{
+          openai: { available: true },
+          ollama: { available: true, models: [] },
+        }}
+        onProviderSelection={onProviderSelection}
+        onRefreshProviders={vi.fn()}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Start voice call' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Dictate message' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
+    expect(screen.getByText(/No Ollama models found/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Use OpenAI' }));
+    expect(onProviderSelection).toHaveBeenCalledWith({ provider: 'openai' });
   });
 });

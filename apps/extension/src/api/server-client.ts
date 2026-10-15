@@ -3,6 +3,7 @@ import {
   VoiceSessionConfigSchema,
   type AgentStepRequest,
   type AgentStepResponse,
+  type ProviderSelection,
 } from '@nudge/contracts';
 
 export class ServerClient {
@@ -45,6 +46,24 @@ export class ServerClient {
 
   async clearProviderKey(): Promise<void> {
     await this.request('/api/settings/provider-key', { method: 'DELETE' });
+  }
+
+  async setProviderSelection(selection: ProviderSelection): Promise<void> {
+    await this.request('/api/settings/provider', {
+      method: 'PUT',
+      body: JSON.stringify(selection),
+    });
+  }
+
+  async getProviderHealth(baseUrl = 'http://127.0.0.1:11434') {
+    const response = await this.request(
+      `/api/providers/health?baseUrl=${encodeURIComponent(baseUrl)}`,
+      { method: 'GET' },
+    );
+    return (await response.json()) as {
+      openai: { available: boolean };
+      ollama: { available: boolean; models: string[]; error?: string };
+    };
   }
 
   async issueRealtimeSession(signal: AbortSignal) {

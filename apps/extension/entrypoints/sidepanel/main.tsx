@@ -1,4 +1,5 @@
 import { StrictMode, useEffect, useRef, useState } from 'react';
+import { ProviderSelectionSchema, type ProviderSelection } from '@nudge/contracts';
 import { createRoot } from 'react-dom/client';
 
 import { SidePanel } from '../../src/components/SidePanel';
@@ -45,6 +46,17 @@ function App() {
   );
   const [voiceMuted, setVoiceMuted] = useState(false);
   const [pushRecording, setPushRecording] = useState(false);
+  const [providerSelection, setProviderSelection] = useState<ProviderSelection>({ provider: 'openai' });
+  const [providerHealth, setProviderHealth] = useState<Awaited<ReturnType<typeof client.getProviderHealth>>>();
+  const refreshProviders = async (baseUrl = providerSelection.provider === 'ollama' ? providerSelection.baseUrl : undefined) => {
+    setProviderHealth(await client.getProviderHealth(baseUrl));
+  };
+  const selectProvider = async (selection: ProviderSelection) => {
+    await client.setProviderSelection(selection);
+    await browser.storage.local.set({ providerSelection: selection });
+    setProviderSelection(selection);
+    state.setStatus(selection.provider === 'ollama' ? `Using local Ollama: ${selection.model}` : 'Using OpenAI.');
+  };
   const send = async (utterance: string) => {
     activeRun?.stop();
     const runId = ++activeRunId;
@@ -143,6 +155,13 @@ function App() {
   useEffect(
     () => {
       void state.hydrateHistory();
+      void browser.storage.local.get('providerSelection').then(async ({ providerSelection: saved }) => {
+        const parsed = ProviderSelectionSchema.safeParse(saved);
+        const selection = parsed.success ? parsed.data : { provider: 'openai' as const };
+        setProviderSelection(selection);
+        await client.setProviderSelection(selection);
+        await refreshProviders(selection.provider === 'ollama' ? selection.baseUrl : undefined);
+      });
       return () => {
         void controllerRef.current?.end();
         void pushToTalkRef.current.cancel();
@@ -194,6 +213,10 @@ function App() {
       status={state.status}
       conversation={state.conversation}
       timeline={state.timeline}
+      providerSelection={providerSelection}
+      providerHealth={providerHealth}
+      onProviderSelection={(selection) => void selectProvider(selection)}
+      onRefreshProviders={() => void refreshProviders()}
       actions={state.actions}
       onSend={(text) => void send(text)}
       onStop={() => activeRun?.stop()}
@@ -226,6 +249,7 @@ function App() {
       voiceState={state.voiceState}
       voiceTranscript={state.voiceTranscript}
       voiceMuted={voiceMuted}
+      showRealtimeVoice={providerSelection.provider === 'openai'}
       onStartVoice={() =>
         void ensureMicrophone().then((ready) => {
           if (ready) return controllerRef.current?.start();
