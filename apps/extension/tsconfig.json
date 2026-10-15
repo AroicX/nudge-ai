@@ -1,8 +1,15 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": ["../../tsconfig.base.json", "./.wxt/tsconfig.json"],
   "compilerOptions": {
     "jsx": "react-jsx",
     "types": ["vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "entrypoints/**/*.ts",
+    "entrypoints/**/*.tsx",
+    "wxt.config.ts",
+    ".wxt/wxt.d.ts"
+  ]
 }
