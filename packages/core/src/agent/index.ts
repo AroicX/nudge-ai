@@ -11,3 +11,6 @@ export * from './verifier';
 export * from './memory';
 export * from './redaction';
 export * from './checkpoint';
+export * from './records';
+export * from './export';
+export * from './timed';
