@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.output/
+.wxt/
+coverage/
+.superpowers/
+pnpm-lock.yaml
+PRD.md
+Tools.md
+docs/superpowers/

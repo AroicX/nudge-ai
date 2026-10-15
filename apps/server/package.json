@@ -1,0 +1,26 @@
+{
+  "name": "@nudge/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/cors": "11.3.1",
+    "@fastify/multipart": "10.1.4",
+    "@fastify/rate-limit": "11.2.1",
+    "@nudge/contracts": "workspace:*",
+    "@nudge/core": "workspace:*",
+    "dotenv": "18.0.8",
+    "fastify": "5.12.7",
+    "openai": "7.34.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "tsx": "4.23.15"
+  }
+}

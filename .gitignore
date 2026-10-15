@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.output/
+.wxt/
+coverage/
+playwright-report/
+test-results/
+.superpowers/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
