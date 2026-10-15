@@ -4,6 +4,7 @@ const ServerEnvironmentSchema = z
   .object({
     OPENAI_API_KEY: z.string().min(1),
     OPENAI_AGENT_MODEL: z.string().min(1),
+    OPENAI_REALTIME_MODEL: z.string().min(1).default('gpt-realtime'),
     NUDGE_PAIRING_SECRET: z.string().min(16),
     NUDGE_SERVER_URL: z.string().optional(),
   })
@@ -12,6 +13,7 @@ const ServerEnvironmentSchema = z
 export interface ServerConfig {
   openAIApiKey: string;
   agentModel: string;
+  realtimeModel: string;
   pairingSecret: string;
   host: '127.0.0.1';
   port: number;
@@ -26,6 +28,7 @@ export function loadConfig(environment: Record<string, string | undefined>): Ser
   return {
     openAIApiKey: parsed.OPENAI_API_KEY,
     agentModel: parsed.OPENAI_AGENT_MODEL,
+    realtimeModel: parsed.OPENAI_REALTIME_MODEL,
     pairingSecret: parsed.NUDGE_PAIRING_SECRET,
     host: '127.0.0.1',
     port: configuredUrl.port ? Number(configuredUrl.port) : 4317,

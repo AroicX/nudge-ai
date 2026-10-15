@@ -10,6 +10,11 @@ import { OpenAIDecisionProvider } from './providers/openai-provider';
 import { registerAgentStepRoute } from './routes/agent-step';
 import { registerHealthRoute } from './routes/health';
 import { registerProviderSettingsRoutes } from './routes/provider-settings';
+import {
+  OpenAIRealtimeSessionIssuer,
+  registerRealtimeSessionRoute,
+  type RealtimeSessionIssuer,
+} from './routes/realtime-session';
 
 export interface BuildAppOptions {
   env?: Record<string, string | undefined>;
@@ -18,6 +23,7 @@ export interface BuildAppOptions {
   rateLimitMax?: number;
   bodyLimit?: number;
   logger?: boolean;
+  realtimeIssuer?: RealtimeSessionIssuer;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -61,6 +67,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       getApiKey: () => sessionKey ?? config.openAIApiKey,
       timeoutMs: options.requestTimeoutMs ?? 20_000,
       rateLimitMax: options.rateLimitMax ?? 30,
+    });
+    registerRealtimeSessionRoute(protectedRoutes, {
+      authenticate,
+      issuer: options.realtimeIssuer ?? new OpenAIRealtimeSessionIssuer(),
+      getApiKey: () => sessionKey ?? config.openAIApiKey,
+      model: config.realtimeModel,
+      timeoutMs: options.requestTimeoutMs ?? 20_000,
     });
   });
 
