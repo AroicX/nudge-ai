@@ -7,3 +7,7 @@ export * from './url-policy';
 export * from './preview';
 export * from './screenshot';
 export * from './policy';
+export * from './verifier';
+export * from './memory';
+export * from './redaction';
+export * from './checkpoint';
