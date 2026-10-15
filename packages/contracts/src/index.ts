@@ -3,3 +3,4 @@ export * from './messages';
 export * from './page';
 export * from './provider';
 export * from './task';
+export * from './voice';
