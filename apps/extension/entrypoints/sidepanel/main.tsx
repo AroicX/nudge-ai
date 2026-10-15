@@ -14,7 +14,10 @@ import { VoiceSessionController } from '../../src/voice/voice-session-controller
 import { createVoiceTaskBridge } from '../../src/voice/voice-task-bridge';
 import '../../src/styles/app.css';
 
-const client = new ServerClient();
+const client = new ServerClient(
+  import.meta.env.WXT_PUBLIC_NUDGE_SERVER_URL ?? 'http://127.0.0.1:4317',
+  import.meta.env.WXT_PUBLIC_NUDGE_PAIRING_SECRET ?? '',
+);
 let activeRun: TaskRunHandle | undefined;
 let activeRunId = 0;
 

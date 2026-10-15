@@ -29,6 +29,21 @@ function isFunctionCall(value: unknown): value is FunctionCallOutput {
   );
 }
 
+function normalizeOpenAIFunctionSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeOpenAIFunctionSchema);
+  if (typeof value !== 'object' || value === null) return value;
+
+  const normalized: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (key === '$schema' || key === 'format') continue;
+    normalized[key === 'oneOf' ? 'anyOf' : key] = normalizeOpenAIFunctionSchema(child);
+  }
+  if (normalized.properties && typeof normalized.properties === 'object') {
+    normalized.required = Object.keys(normalized.properties as Record<string, unknown>);
+  }
+  return normalized;
+}
+
 export class OpenAIDecisionProvider implements DecisionProvider {
   readonly #client: ResponsesClient;
   readonly #model: string;
@@ -40,7 +55,7 @@ export class OpenAIDecisionProvider implements DecisionProvider {
   }
 
   async step(request: AgentStepRequest, signal: AbortSignal): Promise<AgentStepResponse> {
-    const outputSchema = z.toJSONSchema(AgentStepResponseSchema);
+    const outputSchema = normalizeOpenAIFunctionSchema(z.toJSONSchema(AgentStepResponseSchema));
     const response = await this.#client.responses.create(
       {
         model: this.#model,

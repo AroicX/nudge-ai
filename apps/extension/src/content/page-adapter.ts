@@ -1,5 +1,6 @@
 import type { ActionResult, BrowserAction, PageSnapshot } from '@nudge/contracts';
 
+import { showActionCursor } from './action-cursor';
 import { waitForDocumentChange, type ChangeResult } from './change-observer';
 import { ElementRegistry } from './element-registry';
 import { executeAction, type ExecutionGuard } from './executor';
@@ -10,6 +11,7 @@ export interface PageAdapterOptions {
   window: Window;
   documentId: string;
   navigate?: (url: string) => void;
+  visualizeActions?: boolean;
 }
 
 export interface ObserveOptions {
@@ -29,12 +31,15 @@ export interface PageAdapter {
 export function createPageAdapter(options: PageAdapterOptions): PageAdapter {
   const registry = new ElementRegistry(options.documentId);
   const navigate = options.navigate ?? ((url: string) => options.window.location.assign(url));
+  const visualizeTarget = options.visualizeActions
+    ? (target: Element) => showActionCursor(options.document, options.window, target)
+    : undefined;
   return {
     async observe() {
       return captureSnapshot(options.document, options.window, options.documentId, registry);
     },
     async execute(action, guard) {
-      return executeAction({ ...options, registry, navigate }, action, guard);
+      return executeAction({ ...options, registry, navigate, visualizeTarget }, action, guard);
     },
     async waitForChange(baseline, waitOptions) {
       return waitForDocumentChange(

@@ -64,22 +64,27 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
           controller.signal,
         );
         gate.assertActive(generation);
-        task = response.task;
+        task = {
+          ...response.task,
+          cancellationGeneration: generation,
+          boundTabId: input.tabId,
+          boundDocumentId: page.documentId,
+        };
 
         if (response.decision.type === 'finish') {
           dependencies.onMessage?.(response.decision.message);
           dependencies.onStatus?.('Done');
-          return response.task;
+          return task;
         }
         if (response.decision.type === 'ask_user') {
           dependencies.onMessage?.(response.decision.question);
           dependencies.onStatus?.('Waiting for you');
-          return response.task;
+          return task;
         }
 
         const policy = evaluateAction(
           {
-            task: response.task,
+            task,
             tabId: input.tabId,
             documentId: page.documentId,
             observedUrls: page.elements.flatMap((element) => (element.href ? [element.href] : [])),

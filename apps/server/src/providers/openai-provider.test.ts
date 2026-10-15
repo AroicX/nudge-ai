@@ -68,6 +68,9 @@ describe('OpenAIDecisionProvider', () => {
       tool_choice: { type: 'function', name: 'emit_decision' },
       tools: [{ type: 'function', name: 'emit_decision', strict: true }],
     });
+    const body = create.mock.calls[0]?.[0];
+    expect(JSON.stringify(body)).not.toContain('"oneOf"');
+    expect(JSON.stringify(body)).not.toContain('"format"');
   });
 
   it('rejects schema-invalid tool output', async () => {

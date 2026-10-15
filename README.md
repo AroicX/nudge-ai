@@ -4,7 +4,7 @@ Nudge is a Chrome extension that operates the current website through text and l
 
 ## Local setup
 
-1. Copy `.env.example` to `.env`, add your OpenAI API key, and choose a pairing secret of at least 16 characters.
+1. Copy `.env.example` to `.env`, add your OpenAI API key, set `OPENAI_AGENT_MODEL` (the live test uses `gpt-4.1-mini`), and choose a pairing secret of at least 16 characters. Copy that same value into `WXT_PUBLIC_NUDGE_PAIRING_SECRET` before building the extension.
 2. Run `pnpm install`, then start the backend with `pnpm dev:server`.
 3. Build the extension with `pnpm --filter @nudge/extension build`.
 4. In Chrome, open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select `apps/extension/.output/chrome-mv3`.

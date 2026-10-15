@@ -103,7 +103,7 @@ export function captureSnapshot(
         ) &&
         isVisible(element, window),
     )
-    .map((element) => element.textContent?.trim() ?? '')
+    .map((element) => (element.textContent?.trim() ?? '').slice(0, 2_000))
     .filter(Boolean)
     .slice(0, MAX_TEXT);
   elements.forEach((element) => {

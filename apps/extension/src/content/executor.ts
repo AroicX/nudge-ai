@@ -14,6 +14,7 @@ interface ExecutorDependencies {
   documentId: string;
   registry: ElementRegistry;
   navigate(url: string): void;
+  visualizeTarget?: ((target: Element) => Promise<void>) | undefined;
 }
 
 function failure(action: BrowserAction, documentId: string, detail: string): ActionResult {
@@ -83,6 +84,8 @@ export async function executeAction(
   ) {
     return failure(action, documentId, 'Element is disabled.');
   }
+
+  await dependencies.visualizeTarget?.(target);
 
   if (action.type === 'click') {
     (target as HTMLElement).click();

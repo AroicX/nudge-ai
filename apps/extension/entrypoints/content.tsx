@@ -12,6 +12,7 @@ export default defineContentScript({
       document,
       window,
       documentId: crypto.randomUUID(),
+      visualizeActions: true,
     });
 
     browser.runtime.onMessage.addListener((input: unknown) => {

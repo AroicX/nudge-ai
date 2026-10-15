@@ -41,7 +41,7 @@ describe('runTask', () => {
     const responses: AgentStepResponse[] = [
       {
         requestId: 'r1',
-        task,
+        task: { ...task, boundTabId: 0, boundDocumentId: 'model-invented-document' },
         decision: {
           type: 'act',
           taskId: 'task-1',

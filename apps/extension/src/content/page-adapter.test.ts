@@ -77,6 +77,15 @@ describe('PageAdapter.observe', () => {
     });
   });
 
+  it('bounds long page text before sending a provider request', async () => {
+    document.body.innerHTML = `<main>${'Very long storefront content. '.repeat(200)}</main>`;
+    visible(document.querySelector('main')!);
+
+    const snapshot = await createPageAdapter({ document, window, documentId: 'doc_1' }).observe();
+
+    expect(snapshot.text[0]).toHaveLength(2_000);
+  });
+
   it('excludes Nudge UI and sensitive fields', async () => {
     document.body.innerHTML = `
       <div data-nudge-root><button>Nudge internal</button></div>
