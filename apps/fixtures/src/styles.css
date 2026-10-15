@@ -9,6 +9,16 @@
 body {
   margin: 0;
 }
+.mail-list {
+  display: grid;
+  gap: 12px;
+}
+.mail-list article {
+  background: white;
+  border: 1px solid #dfe3eb;
+  border-radius: 16px;
+  padding: 18px;
+}
 main {
   margin: 0 auto;
   max-width: 1120px;

@@ -2,7 +2,7 @@ import type { ActionResult, BrowserAction } from '@nudge/contracts';
 
 import type { ElementRegistry } from './element-registry';
 import { isVisible } from './snapshot';
-import { SecretEnvelope, type SecretBinding } from '../security/secret-envelope';
+import type { SecretBinding, SecretEnvelope } from '../security/secret-envelope';
 
 export interface ExecutionGuard {
   active: boolean;

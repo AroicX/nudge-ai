@@ -85,7 +85,7 @@ export function createHistoryStore(storage: StorageArea) {
       const clean = bounded(value);
       try {
         await storage.set({ [STORAGE_KEY]: clean });
-      } catch (error) {
+      } catch {
         const pruneCount = Math.max(1, Math.ceil(clean.turns.length / 4));
         const pruned = { ...clean, turns: clean.turns.slice(pruneCount) };
         await storage.set({ [STORAGE_KEY]: pruned });
