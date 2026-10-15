@@ -48,6 +48,25 @@ export class OllamaDecisionProvider implements DecisionProvider {
     }
   }
 
+  static async capabilities(
+    baseUrl: string,
+    model: string,
+    fetcher: Fetcher = fetch,
+  ): Promise<{ tools: boolean; vision: boolean }> {
+    const show = (await readJson(
+      await fetcher(`${loopbackBaseUrl(baseUrl)}/api/show`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model }),
+      }),
+      'model',
+    )) as { capabilities?: string[] };
+    return {
+      tools: show.capabilities?.includes('tools') ?? false,
+      vision: show.capabilities?.includes('vision') ?? false,
+    };
+  }
+
   async step(request: AgentStepRequest, signal: AbortSignal): Promise<AgentStepResponse> {
     const show = (await readJson(
       await this.fetcher(`${this.#baseUrl}/api/show`, {

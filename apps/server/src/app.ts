@@ -11,6 +11,11 @@ import { OpenAIDecisionProvider } from './providers/openai-provider';
 import { OllamaDecisionProvider } from './providers/ollama-provider';
 import { ProviderRouter } from './providers/provider-router';
 import { registerAgentStepRoute } from './routes/agent-step';
+import { registerAgentPlanRoutes } from './routes/agent-plan';
+import { OpenAIPlanner } from './planner/openai-planner';
+import { OllamaPlanner } from './planner/ollama-planner';
+import type { PlannerFactory } from './planner/planner-provider';
+import { ScriptedPlanner, type ScenarioFile } from './planner/scripted-planner';
 import {
   OpenAIAudioTranscriber,
   registerAudioTranscribeRoute,
@@ -34,6 +39,7 @@ export interface BuildAppOptions {
   logger?: boolean;
   realtimeIssuer?: RealtimeSessionIssuer;
   audioTranscriber?: AudioTranscriber;
+  plannerFactory?: PlannerFactory;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -88,6 +94,33 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       timeoutMs: options.requestTimeoutMs ?? 20_000,
       rateLimitMax: options.rateLimitMax ?? 30,
     });
+    const scripted =
+      config.planner === 'scripted' && config.plannerScript ? ScriptedPlanner.fromPath(config.plannerScript) : undefined;
+    const plannerFactory: PlannerFactory =
+      options.plannerFactory ??
+      (scripted
+        ? () => scripted
+        : (providerOverride) => {
+            const active = providerOverride === 'openai' ? { provider: 'openai' as const } : selection;
+            return active.provider === 'openai'
+              ? new OpenAIPlanner(new OpenAI({ apiKey: sessionKey ?? config.openAIApiKey }), config.agentModel)
+              : new OllamaPlanner(active.baseUrl, active.model);
+          });
+    registerAgentPlanRoutes(protectedRoutes, {
+      authenticate,
+      plannerFactory,
+      timeoutMs: options.requestTimeoutMs ?? 30_000,
+      planRateLimit: options.rateLimitMax ?? (scripted ? 600 : 60),
+      scopeRateLimit: scripted ? 600 : 10,
+    });
+    if (scripted) {
+      // Test-only hooks for the Playwright harness; never registered for live planners.
+      protectedRoutes.get('/api/test/planner-log', { preHandler: authenticate }, async () => scripted.log);
+      protectedRoutes.put('/api/test/scenarios', { preHandler: authenticate }, async (request) => {
+        scripted.replace(request.body as ScenarioFile);
+        return { ok: true };
+      });
+    }
     registerRealtimeSessionRoute(protectedRoutes, {
       authenticate,
       issuer: options.realtimeIssuer ?? new OpenAIRealtimeSessionIssuer(),
