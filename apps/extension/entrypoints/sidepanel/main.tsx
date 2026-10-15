@@ -20,6 +20,7 @@ import { VoiceSessionController } from '../../src/voice/voice-session-controller
 import { createVoiceTaskBridge } from '../../src/voice/voice-task-bridge';
 import { openMicrophoneSetup, probeMicrophone } from '../../src/permissions/microphone';
 import { TabRegistry } from '../../src/tabs/tab-registry';
+import { reconcileProviderSelection } from '../../src/providers/provider-selection';
 import '../../src/styles/app.css';
 
 const client = new ServerClient(
@@ -179,9 +180,21 @@ function App() {
       void browser.storage.local.get('providerSelection').then(async ({ providerSelection: saved }) => {
         const parsed = ProviderSelectionSchema.safeParse(saved);
         const selection = parsed.success ? parsed.data : { provider: 'openai' as const };
-        setProviderSelection(selection);
-        await client.setProviderSelection(selection);
-        await refreshProviders(selection.provider === 'ollama' ? selection.baseUrl : undefined);
+        const health = await client.getProviderHealth(
+          selection.provider === 'ollama' ? selection.baseUrl : undefined,
+        );
+        const availableSelection = reconcileProviderSelection(selection, health);
+        setProviderHealth(health);
+        setProviderSelection(availableSelection);
+        await client.setProviderSelection(availableSelection);
+        if (JSON.stringify(availableSelection) !== JSON.stringify(selection)) {
+          await browser.storage.local.set({ providerSelection: availableSelection });
+          state.setStatus(
+            availableSelection.provider === 'openai'
+              ? 'Ollama has no available model. Using OpenAI.'
+              : `Using local Ollama: ${availableSelection.model}`,
+          );
+        }
       });
       return () => {
         void controllerRef.current?.end();
