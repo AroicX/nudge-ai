@@ -4,6 +4,9 @@ import { ActionHistory } from './ActionHistory';
 import { Composer } from './Composer';
 import { ProviderSettings } from './ProviderSettings';
 import { Status } from './Status';
+import { LiveTranscript } from './LiveTranscript';
+import { VoiceControls } from './VoiceControls';
+import type { VoiceSessionState } from '@nudge/contracts';
 
 interface SidePanelProps {
   busy: boolean;
@@ -15,6 +18,14 @@ interface SidePanelProps {
   onSaveKey(key: string): void;
   onClearKey(): void;
   onClearHistory?: () => void;
+  voiceState?: VoiceSessionState;
+  voiceTranscript?: string;
+  voiceMuted?: boolean;
+  onStartVoice?: () => void;
+  onEndVoice?: () => void;
+  onMuteVoice?: () => void;
+  onInterruptVoice?: () => void;
+  onPushToTalk?: () => void;
 }
 
 export function SidePanel({
@@ -27,6 +38,14 @@ export function SidePanel({
   onSaveKey,
   onClearKey,
   onClearHistory,
+  voiceState = 'idle',
+  voiceTranscript = '',
+  voiceMuted = false,
+  onStartVoice = () => undefined,
+  onEndVoice = () => undefined,
+  onMuteVoice = () => undefined,
+  onInterruptVoice = () => undefined,
+  onPushToTalk,
 }: SidePanelProps) {
   return (
     <main className="panel">
@@ -38,6 +57,16 @@ export function SidePanel({
         </div>
       </header>
       <Status value={status} />
+      <VoiceControls
+        state={voiceState}
+        muted={voiceMuted}
+        onStart={onStartVoice}
+        onEnd={onEndVoice}
+        onMute={onMuteVoice}
+        onInterrupt={onInterruptVoice}
+        onPushToTalk={onPushToTalk}
+      />
+      <LiveTranscript text={voiceTranscript} />
       <section className="conversation" aria-label="Conversation">
         {conversation.length ? (
           conversation.map((turn) => (

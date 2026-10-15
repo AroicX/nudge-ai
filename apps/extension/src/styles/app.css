@@ -32,6 +32,36 @@ button.secondary {
   background: #e9e7fb;
   color: #4036a7;
 }
+button.danger {
+  background: #b42318;
+}
+.voice-controls {
+  background: #171827;
+  border-radius: 18px;
+  color: white;
+  padding: 14px;
+}
+.voice-controls > div {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+.voice-controls__actions {
+  margin-top: 12px;
+}
+.voice-orb {
+  align-items: center;
+  display: inline-flex;
+  height: 54px;
+  justify-content: center;
+  width: 54px;
+}
+.live-transcript {
+  border-left: 3px solid #6254e7;
+  color: #566078;
+  margin: 0;
+  padding-left: 10px;
+}
 button.link {
   background: transparent;
   color: #5145cd;
@@ -151,4 +181,20 @@ textarea {
 .history summary {
   cursor: pointer;
   font-weight: 650;
+}
+@import 'tailwindcss';
+
+@import 'tailwindcss';
+
+@theme inline {
+  --color-border: #dde1eb;
+  --color-input: #f1f3f8;
+  --color-ring: #6254e7;
+  --color-background: #f7f8fb;
+  --color-foreground: #172033;
+  --color-primary: #172033;
+  --color-secondary: #eeecff;
+  --color-muted: #f1f3f8;
+  --color-muted-foreground: #687087;
+  --color-card: #ffffff;
 }

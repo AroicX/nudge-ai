@@ -1,10 +1,17 @@
-import { StrictMode } from 'react';
+import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { SidePanel } from '../../src/components/SidePanel';
 import { ServerClient } from '../../src/api/server-client';
 import { runTask, type TaskRunHandle } from '../../src/orchestration/run-task';
 import { useNudgeStore } from '../../src/state/use-nudge-store';
+import { PushToTalkTransport } from '../../src/voice/push-to-talk-transport';
+import {
+  browserRealtimeDependencies,
+  createRealtimeVoiceTransport,
+} from '../../src/voice/realtime-transport';
+import { VoiceSessionController } from '../../src/voice/voice-session-controller';
+import { createVoiceTaskBridge } from '../../src/voice/voice-task-bridge';
 import '../../src/styles/app.css';
 
 const client = new ServerClient();
@@ -25,6 +32,13 @@ async function sendToPage<T>(tabId: number, message: unknown): Promise<T> {
 
 function App() {
   const state = useNudgeStore();
+  const sendRef = useRef<(text: string) => void>(() => undefined);
+  const controllerRef = useRef<VoiceSessionController | undefined>(undefined);
+  const pushToTalkRef = useRef(
+    new PushToTalkTransport((audio, signal) => client.transcribe(audio, signal)),
+  );
+  const [voiceMuted, setVoiceMuted] = useState(false);
+  const [pushRecording, setPushRecording] = useState(false);
   const send = async (utterance: string) => {
     activeRun?.stop();
     const runId = ++activeRunId;
@@ -83,6 +97,67 @@ function App() {
     else if (result.reason) state.setStatus(result.reason);
     state.setBusy(false);
   };
+  sendRef.current = (text) => void send(text);
+
+  if (!controllerRef.current) {
+    const bridge = createVoiceTaskBridge({
+      submitTurn: (text) => sendRef.current(text),
+      stopTask: () => activeRun?.stop(),
+      reportIntent: (_name, argumentsValue) =>
+        sendRef.current(
+          typeof argumentsValue.goal === 'string'
+            ? argumentsValue.goal
+            : JSON.stringify(argumentsValue),
+        ),
+    });
+    controllerRef.current = new VoiceSessionController(
+      createRealtimeVoiceTransport(browserRealtimeDependencies()),
+      (signal) => client.issueRealtimeSession(signal),
+      (event) => {
+        bridge(event);
+        const current = useNudgeStore.getState();
+        if (event.type === 'state') current.setVoiceState(event.state);
+        if (event.type === 'transcript') {
+          current.setVoiceTranscript(event.text);
+          if (event.final && event.role === 'assistant') {
+            current.addTurn({
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              text: event.text,
+              createdAt: new Date().toISOString(),
+            });
+          }
+        }
+        if (event.type === 'error') current.setStatus(event.message);
+      },
+    );
+  }
+
+  useEffect(
+    () => () => {
+      void controllerRef.current?.end();
+      void pushToTalkRef.current.cancel();
+      activeRun?.stop();
+    },
+    [],
+  );
+
+  const togglePushToTalk = async () => {
+    try {
+      if (!pushRecording) {
+        await pushToTalkRef.current.start();
+        setPushRecording(true);
+        state.setStatus('Listening — tap again when finished.');
+      } else {
+        setPushRecording(false);
+        const text = await pushToTalkRef.current.stop();
+        sendRef.current(text);
+      }
+    } catch (error) {
+      setPushRecording(false);
+      state.setStatus(error instanceof Error ? error.message : 'Voice recording failed.');
+    }
+  };
   return (
     <SidePanel
       busy={state.busy}
@@ -108,6 +183,18 @@ function App() {
           )
       }
       onClearHistory={state.clearHistory}
+      voiceState={state.voiceState}
+      voiceTranscript={state.voiceTranscript}
+      voiceMuted={voiceMuted}
+      onStartVoice={() => void controllerRef.current?.start()}
+      onEndVoice={() => void controllerRef.current?.end()}
+      onMuteVoice={() => {
+        const next = !voiceMuted;
+        setVoiceMuted(next);
+        controllerRef.current?.setMuted(next);
+      }}
+      onInterruptVoice={() => controllerRef.current?.interrupt()}
+      onPushToTalk={() => void togglePushToTalk()}
     />
   );
 }

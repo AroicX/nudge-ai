@@ -8,6 +8,11 @@ import { loadConfig } from './config';
 import type { DecisionProviderFactory } from './providers/decision-provider';
 import { OpenAIDecisionProvider } from './providers/openai-provider';
 import { registerAgentStepRoute } from './routes/agent-step';
+import {
+  OpenAIAudioTranscriber,
+  registerAudioTranscribeRoute,
+  type AudioTranscriber,
+} from './routes/audio-transcribe';
 import { registerHealthRoute } from './routes/health';
 import { registerProviderSettingsRoutes } from './routes/provider-settings';
 import {
@@ -24,6 +29,7 @@ export interface BuildAppOptions {
   bodyLimit?: number;
   logger?: boolean;
   realtimeIssuer?: RealtimeSessionIssuer;
+  audioTranscriber?: AudioTranscriber;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -73,6 +79,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       issuer: options.realtimeIssuer ?? new OpenAIRealtimeSessionIssuer(),
       getApiKey: () => sessionKey ?? config.openAIApiKey,
       model: config.realtimeModel,
+      timeoutMs: options.requestTimeoutMs ?? 20_000,
+    });
+    await registerAudioTranscribeRoute(protectedRoutes, {
+      authenticate,
+      transcriber: options.audioTranscriber ?? new OpenAIAudioTranscriber(),
+      getApiKey: () => sessionKey ?? config.openAIApiKey,
+      model: config.transcribeModel,
       timeoutMs: options.requestTimeoutMs ?? 20_000,
     });
   });

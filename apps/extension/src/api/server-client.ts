@@ -1,5 +1,6 @@
 import {
   AgentStepResponseSchema,
+  VoiceSessionConfigSchema,
   type AgentStepRequest,
   type AgentStepResponse,
 } from '@nudge/contracts';
@@ -44,5 +45,29 @@ export class ServerClient {
 
   async clearProviderKey(): Promise<void> {
     await this.request('/api/settings/provider-key', { method: 'DELETE' });
+  }
+
+  async issueRealtimeSession(signal: AbortSignal) {
+    const response = await this.request(
+      '/api/realtime/session',
+      { method: 'POST', body: JSON.stringify({ voice: 'marin' }) },
+      signal,
+    );
+    return VoiceSessionConfigSchema.parse(await response.json());
+  }
+
+  async transcribe(audio: Blob, signal: AbortSignal): Promise<string> {
+    const form = new FormData();
+    form.append('audio', audio, `speech.${audio.type.includes('mp4') ? 'mp4' : 'webm'}`);
+    const response = await fetch(`${this.baseUrl}/api/audio/transcribe`, {
+      method: 'POST',
+      headers: { 'x-nudge-pairing-secret': this.pairingSecret },
+      body: form,
+      signal,
+    });
+    if (!response.ok) throw new Error('Could not transcribe audio.');
+    const body = (await response.json()) as { text?: unknown };
+    if (typeof body.text !== 'string') throw new Error('Transcription response was invalid.');
+    return body.text;
   }
 }
