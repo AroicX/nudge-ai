@@ -95,6 +95,7 @@ function App() {
             text,
             createdAt: new Date().toISOString(),
           }),
+        onTimelineStep: state.setTimelineStep,
       },
     );
     const result = await activeRun.done;
@@ -192,6 +193,7 @@ function App() {
       busy={state.busy}
       status={state.status}
       conversation={state.conversation}
+      timeline={state.timeline}
       actions={state.actions}
       onSend={(text) => void send(text)}
       onStop={() => activeRun?.stop()}

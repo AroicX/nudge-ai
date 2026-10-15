@@ -4,6 +4,7 @@ import type {
   PersistedTurn,
   TaskState,
   VoiceSessionState,
+  TimelineStep,
 } from '@nudge/contracts';
 import { create } from 'zustand';
 import { historyStore } from '../history/history-store';
@@ -16,6 +17,7 @@ interface NudgeState {
   task: TaskState | null;
   voiceState: VoiceSessionState;
   voiceTranscript: string;
+  timeline: TimelineStep[];
   setBusy(busy: boolean): void;
   setStatus(status: string): void;
   addTurn(turn: ConversationTurn): void;
@@ -25,6 +27,7 @@ interface NudgeState {
   clearHistory(): Promise<void>;
   setVoiceState(state: VoiceSessionState): void;
   setVoiceTranscript(text: string): void;
+  setTimelineStep(step: TimelineStep): void;
 }
 
 export const useNudgeStore = create<NudgeState>((set) => ({
@@ -35,6 +38,7 @@ export const useNudgeStore = create<NudgeState>((set) => ({
   task: null,
   voiceState: 'idle',
   voiceTranscript: '',
+  timeline: [],
   setBusy: (busy) => set({ busy }),
   setStatus: (status) => set({ status }),
   addTurn: (turn) =>
@@ -55,4 +59,8 @@ export const useNudgeStore = create<NudgeState>((set) => ({
   },
   setVoiceState: (voiceState) => set({ voiceState }),
   setVoiceTranscript: (voiceTranscript) => set({ voiceTranscript }),
+  setTimelineStep: (step) =>
+    set((state) => ({
+      timeline: [...state.timeline.filter((item) => item.id !== step.id), step].slice(-100),
+    })),
 }));

@@ -6,6 +6,7 @@ import type {
   ConversationTurn,
   PageSnapshot,
   TaskState,
+  TimelineStep,
 } from '@nudge/contracts';
 import { CancellationGate, evaluateAction } from '@nudge/core';
 
@@ -27,6 +28,7 @@ export interface RunTaskDependencies {
   onStatus?: (status: string) => void;
   onAction?: (result: ActionResult) => void;
   onMessage?: (message: string) => void;
+  onTimelineStep?: (step: TimelineStep) => void;
 }
 
 export interface TaskRunHandle {
@@ -43,12 +45,22 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
     TaskState | { status: 'stopped' | 'failed'; reason?: string }
   > => {
     let task = input.task;
+    let activeTimeline: TimelineStep | undefined;
+    const timeline = (step: TimelineStep) => {
+      activeTimeline = step;
+      dependencies.onTimelineStep?.(step);
+    };
     try {
       for (let stepCount = 0; stepCount < 12; stepCount += 1) {
+        const observeId = `${generation}:observe:${stepCount}`;
+        timeline({ id: observeId, label: 'Reading the current page', status: 'active' });
         dependencies.onStatus?.('Reading this page…');
         const page = await dependencies.observe(controller.signal);
         gate.assertActive(generation);
+        timeline({ id: observeId, label: 'Read the current page', status: 'completed' });
 
+        const decideId = `${generation}:decide:${stepCount}`;
+        timeline({ id: decideId, label: 'Choosing the next safe action', status: 'active' });
         dependencies.onStatus?.('Working on it…');
         const requestId = crypto.randomUUID();
         const response = await dependencies.step(
@@ -64,6 +76,7 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
           controller.signal,
         );
         gate.assertActive(generation);
+        timeline({ id: decideId, label: 'Chose the next safe action', status: 'completed' });
         task = {
           ...response.task,
           cancellationGeneration: generation,
@@ -120,6 +133,9 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
       }
       return { status: 'failed', reason: 'Nudge reached its safe step limit.' };
     } catch (error) {
+      if (activeTimeline) {
+        timeline({ ...activeTimeline, status: 'error', detail: error instanceof Error ? error.message : 'Task failed.' });
+      }
       if (controller.signal.aborted) return { status: 'stopped' };
       return { status: 'failed', reason: error instanceof Error ? error.message : 'Task failed.' };
     }

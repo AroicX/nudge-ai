@@ -113,4 +113,34 @@ describe('runTask', () => {
     await expect(handle.done).resolves.toMatchObject({ status: 'stopped' });
     expect(execute).not.toHaveBeenCalled();
   });
+
+  it('emits deterministic timeline transitions without provider reasoning', async () => {
+    const onTimelineStep = vi.fn();
+    const handle = runTask(
+      { tabId: 7, utterance: 'search', conversation: [], task: null },
+      {
+        observe: async () => page('snap-1'),
+        step: async () => ({
+          requestId: 'r1',
+          task: { ...task, status: 'completed' },
+          decision: {
+            type: 'finish',
+            taskId: 'task-1',
+            message: 'Done',
+            evidence: [{ kind: 'page_text', text: 'Shop' }],
+          },
+        }),
+        execute: vi.fn(),
+        onTimelineStep,
+      },
+    );
+    await handle.done;
+    expect(onTimelineStep.mock.calls.map(([step]) => step.status)).toEqual([
+      'active',
+      'completed',
+      'active',
+      'completed',
+    ]);
+    expect(JSON.stringify(onTimelineStep.mock.calls)).not.toMatch(/reasoning|thoughts/i);
+  });
 });

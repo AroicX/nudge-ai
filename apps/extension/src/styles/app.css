@@ -163,6 +163,88 @@ header p {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.sr-only {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+  clip: rect(0, 0, 0, 0);
+}
+.execution-timeline {
+  background: white;
+  border: 1px solid #e3e6ee;
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+.chain-of-thought__trigger {
+  align-items: center;
+  background: transparent;
+  color: #4b5265;
+  display: flex;
+  font-size: 13px;
+  justify-content: space-between;
+  min-height: 28px;
+  padding: 0;
+  width: 100%;
+}
+.chain-of-thought__trigger svg {
+  transition: transform 160ms ease;
+}
+.chain-of-thought__trigger[data-state='open'] svg {
+  transform: rotate(180deg);
+}
+.chain-of-thought__content {
+  display: grid;
+  gap: 9px;
+  padding-top: 9px;
+}
+.chain-of-thought__step {
+  color: #687087;
+  font-size: 12px;
+}
+.chain-of-thought__title {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+.step-dot {
+  background: #a7adbb;
+  border-radius: 999px;
+  height: 7px;
+  width: 7px;
+}
+[data-status='active'] .step-dot {
+  animation: pulse 1.1s ease-in-out infinite;
+  background: #6254e7;
+}
+[data-status='completed'] .step-dot {
+  background: #12b76a;
+}
+[data-status='error'] {
+  color: #b42318;
+}
+.chain-of-thought__detail {
+  border-left: 1px solid #dde1eb;
+  margin: 5px 0 0 3px;
+  padding-left: 12px;
+}
+.chain-of-thought__detail p {
+  margin: 0;
+}
+.timeline-source {
+  display: inline-block;
+  margin-right: 6px;
+}
+.chain-of-thought__complete {
+  color: #067647;
+  font-size: 12px;
+  font-weight: 650;
+}
+@keyframes pulse {
+  50% { opacity: 0.35; }
+}
 .source-chip span {
   font-size: 11px;
   font-weight: 700;

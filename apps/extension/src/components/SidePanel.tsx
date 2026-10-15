@@ -4,6 +4,7 @@ import type {
   PersistedTurn,
   SourceReference,
   VoiceSessionState,
+  TimelineStep,
 } from '@nudge/contracts';
 import { Check, Copy, Settings } from 'lucide-react';
 import { useState } from 'react';
@@ -12,6 +13,7 @@ import { Composer } from './Composer';
 import { ProviderSettings } from './ProviderSettings';
 import { Status } from './Status';
 import { LiveTranscript } from './LiveTranscript';
+import { ExecutionTimeline } from './ExecutionTimeline';
 
 interface SidePanelProps {
   busy: boolean;
@@ -36,6 +38,7 @@ interface SidePanelProps {
   onDictate?: () => Promise<string | undefined>;
   showRealtimeVoice?: boolean;
   onOpenSource?: (source: SourceReference) => void;
+  timeline?: TimelineStep[];
 }
 
 export function SidePanel({
@@ -55,6 +58,7 @@ export function SidePanel({
   onDictate = async () => '',
   showRealtimeVoice = true,
   onOpenSource = () => undefined,
+  timeline = [],
 }: SidePanelProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string>();
@@ -84,6 +88,7 @@ export function SidePanel({
       </header>
       <Status value={status} />
       <LiveTranscript text={voiceTranscript} />
+      <ExecutionTimeline steps={timeline} />
       <section className="conversation" aria-label="Conversation">
         {conversation.length ? (
           conversation.map((turn) => (
