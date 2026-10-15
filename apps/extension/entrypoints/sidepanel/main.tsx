@@ -4,7 +4,8 @@ import { createRoot } from 'react-dom/client';
 
 import { SidePanel } from '../../src/components/SidePanel';
 import { ServerClient } from '../../src/api/server-client';
-import { runTask, type TaskRunHandle } from '../../src/orchestration/run-task';
+import type { TaskRunHandle } from '../../src/orchestration/run-task';
+import { runBrowserTask } from '../../src/orchestration/browser-task-runner';
 import { ProviderFallbackController, type ProviderFallbackRequest } from '../../src/orchestration/provider-fallback';
 import { useNudgeStore } from '../../src/state/use-nudge-store';
 import { PushToTalkTransport } from '../../src/voice/push-to-talk-transport';
@@ -79,7 +80,7 @@ function App() {
     const fallback = new ProviderFallbackController();
     fallbackRef.current = fallback;
     setFallbackRequest(undefined);
-    activeRun = runTask(
+    activeRun = await runBrowserTask(
       {
         tabId: tab.id,
         utterance,
@@ -88,15 +89,16 @@ function App() {
         provider: providerSelection.provider,
       },
       {
-        observe: async () =>
-          sendToPage(tab.id!, {
+        tabs: tabRegistry,
+        observeTab: async (targetTabId) =>
+          sendToPage(targetTabId, {
             type: 'page.observe',
             requestId: crypto.randomUUID(),
             taskId: state.task?.id ?? 'new',
           }),
-        step: (request, signal) => client.step(request, signal),
-        execute: async (action, guard) =>
-          sendToPage(tab.id!, {
+        step: (request, signal, provider) => client.step(request, signal, provider),
+        executeOnTab: async (targetTabId, action, guard) =>
+          sendToPage(targetTabId, {
             type: 'page.execute',
             requestId: crypto.randomUUID(),
             taskId: state.task?.id ?? 'new',

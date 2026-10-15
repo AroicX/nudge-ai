@@ -7,6 +7,7 @@ import type {
   PageSnapshot,
   TaskState,
   TimelineStep,
+  BrowserContext,
 } from '@nudge/contracts';
 import { CancellationGate, evaluateAction } from '@nudge/core';
 import type { ProviderFallbackController, ProviderFallbackRequest } from './provider-fallback';
@@ -17,10 +18,11 @@ export interface RunTaskInput {
   conversation: ConversationTurn[];
   task: TaskState | null;
   provider?: 'openai' | 'ollama';
+  browserContext?: BrowserContext;
 }
 
 export interface RunTaskDependencies {
-  observe(signal: AbortSignal): Promise<PageSnapshot>;
+  observe(signal: AbortSignal, tabId?: number): Promise<PageSnapshot>;
   step(
     request: AgentStepRequest,
     signal: AbortSignal,
@@ -37,6 +39,7 @@ export interface RunTaskDependencies {
   onTimelineStep?: (step: TimelineStep) => void;
   fallback?: ProviderFallbackController;
   onFallbackRequest?: (request: ProviderFallbackRequest) => void;
+  switchTab?: (tabId: number, signal: AbortSignal) => Promise<void>;
 }
 
 export interface TaskRunHandle {
@@ -53,6 +56,7 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
     TaskState | { status: 'stopped' | 'failed'; reason?: string }
   > => {
     let task = input.task;
+    let currentTabId = input.tabId;
     let activeTimeline: TimelineStep | undefined;
     const timeline = (step: TimelineStep) => {
       activeTimeline = step;
@@ -63,7 +67,7 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
         const observeId = `${generation}:observe:${stepCount}`;
         timeline({ id: observeId, label: 'Reading the current page', status: 'active' });
         dependencies.onStatus?.('Reading this page…');
-        const page = await dependencies.observe(controller.signal);
+        const page = await dependencies.observe(controller.signal, currentTabId);
         gate.assertActive(generation);
         timeline({ id: observeId, label: 'Read the current page', status: 'completed' });
 
@@ -79,6 +83,9 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
             conversation: input.conversation,
             page,
             task,
+            ...(input.browserContext
+              ? { browserContext: { ...input.browserContext, currentTabId } }
+              : {}),
           } satisfies AgentStepRequest;
         let response: AgentStepResponse;
         try {
@@ -100,7 +107,7 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
         task = {
           ...response.task,
           cancellationGeneration: generation,
-          boundTabId: input.tabId,
+          boundTabId: currentTabId,
           boundDocumentId: page.documentId,
         };
 
@@ -115,15 +122,28 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
           return task;
         }
         if (response.decision.type === 'switch_tab') {
-          const reason = 'Cross-tab switching is not available in this build yet.';
-          dependencies.onStatus?.(reason);
-          return { status: 'failed', reason };
+          const decision = response.decision;
+          const target = input.browserContext?.tabs.find(
+            (candidate) => candidate.tabId === decision.tabId && !candidate.discarded,
+          );
+          if (!target || !dependencies.switchTab) {
+            const reason = 'The requested browser tab is not available.';
+            dependencies.onStatus?.(reason);
+            return { status: 'failed', reason };
+          }
+          const switchId = `${generation}:switch:${stepCount}`;
+          timeline({ id: switchId, label: decision.reason, status: 'active', sources: [target] });
+          await dependencies.switchTab(target.tabId, controller.signal);
+          gate.assertActive(generation);
+          currentTabId = target.tabId;
+          timeline({ id: switchId, label: `Switched to ${target.title}`, status: 'completed', sources: [target] });
+          continue;
         }
 
         const policy = evaluateAction(
           {
             task,
-            tabId: input.tabId,
+            tabId: currentTabId,
             documentId: page.documentId,
             observedUrls: page.elements.flatMap((element) => (element.href ? [element.href] : [])),
           },
@@ -138,7 +158,7 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
         const result = await dependencies.execute(
           response.decision.action,
           {
-            tabId: input.tabId,
+            tabId: currentTabId,
             documentId: page.documentId,
             cancellationGeneration: generation,
           },
