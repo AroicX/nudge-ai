@@ -18,6 +18,10 @@ describe('showActionCursor', () => {
     const pending = showActionCursor(document, window, button);
     const cursor = document.querySelector('[data-nudge-root="action-cursor"]') as HTMLElement;
     expect(cursor.style.pointerEvents).toBe('none');
+    expect(cursor.style.width).toBe('18px');
+    expect(cursor.style.height).toBe('22px');
+    expect(cursor.querySelector('path')?.getAttribute('fill-opacity')).toBe('0.72');
+    expect((cursor.querySelector('span') as HTMLElement).style.width).toBe('20px');
     expect(cursor.style.transform).toContain('translate3d(90px,40px,0)');
 
     await vi.advanceTimersByTimeAsync(430);

@@ -1,15 +1,44 @@
 import tailwindcss from '@tailwindcss/vite';
+import { readFileSync } from 'node:fs';
+import { parseEnv } from 'node:util';
 import { defineConfig } from 'wxt';
+
+function readRootPairingSecret(): string | undefined {
+  if (process.env.WXT_PUBLIC_NUDGE_PAIRING_SECRET) {
+    return process.env.WXT_PUBLIC_NUDGE_PAIRING_SECRET;
+  }
+  try {
+    return parseEnv(readFileSync(new URL('../../.env', import.meta.url), 'utf8'))
+      .WXT_PUBLIC_NUDGE_PAIRING_SECRET;
+  } catch {
+    return undefined;
+  }
+}
+
+function requirePairingSecret() {
+  return {
+    name: 'nudge-require-pairing-secret',
+    config() {
+      if (!readRootPairingSecret()) {
+        throw new Error(
+          'WXT_PUBLIC_NUDGE_PAIRING_SECRET is required and must match NUDGE_PAIRING_SECRET.',
+        );
+      }
+    },
+  };
+}
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
-  vite: () => ({ plugins: [tailwindcss()] }),
+  vite: () => ({
+    envDir: '../..',
+    plugins: [requirePairingSecret(), tailwindcss()],
+  }),
   manifest: {
     name: 'Nudge',
     description: 'A fast, conversational browser assistant that acts with you in control.',
     permissions: ['activeTab', 'scripting', 'sidePanel', 'storage'],
-    host_permissions: ['http://127.0.0.1/*'],
-    optional_host_permissions: ['http://*/*', 'https://*/*'],
+    host_permissions: ['http://*/*', 'https://*/*'],
     action: { default_title: 'Open Nudge' },
     side_panel: { default_path: 'sidepanel.html' },
   },
