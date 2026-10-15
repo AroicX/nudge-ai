@@ -6,7 +6,7 @@ import {
 
 export class ServerClient {
   constructor(
-    private readonly baseUrl = 'http://127.0.0.1:8787',
+    private readonly baseUrl = 'http://127.0.0.1:4317',
     private readonly pairingSecret = '',
   ) {}
 

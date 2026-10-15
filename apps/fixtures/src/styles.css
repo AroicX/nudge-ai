@@ -1,0 +1,120 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #172033;
+  background: #f4f1e9;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  margin: 0 auto;
+  max-width: 1120px;
+  padding: 56px 24px;
+}
+h1 {
+  font-size: clamp(40px, 7vw, 76px);
+  letter-spacing: -0.055em;
+  margin: 4px 0 12px;
+}
+.eyebrow {
+  color: #665c42;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.filters {
+  background: #fffdf8;
+  border: 1px solid #d9d2c3;
+  border-radius: 20px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 2fr 1fr 1fr;
+  margin: 42px 0 20px;
+  padding: 16px;
+}
+label {
+  font-size: 13px;
+  font-weight: 700;
+}
+input,
+select {
+  background: white;
+  border: 1px solid #c8c0af;
+  border-radius: 10px;
+  display: block;
+  font: inherit;
+  margin-top: 7px;
+  min-height: 44px;
+  padding: 0 12px;
+  width: 100%;
+}
+.results-count {
+  color: #665c42;
+}
+.grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+article {
+  background: #fffdf8;
+  border: 1px solid #ddd6c8;
+  border-radius: 22px;
+  padding: 18px;
+}
+article h2 {
+  margin: 4px 0;
+}
+.phone {
+  background: linear-gradient(145deg, #272a31, #090a0d);
+  border-radius: 30px;
+  height: 220px;
+  margin-bottom: 18px;
+}
+.price {
+  font-size: 24px;
+  font-weight: 800;
+}
+a {
+  color: #413a27;
+  font-weight: 750;
+}
+.untrusted {
+  border-top: 1px solid #d9d2c3;
+  color: #817866;
+  font-size: 12px;
+  margin-top: 48px;
+  padding-top: 20px;
+}
+.product-page {
+  max-width: 720px;
+}
+.product-page__image {
+  align-items: center;
+  background: #17191e;
+  border-radius: 44px;
+  color: white;
+  display: flex;
+  font-size: 96px;
+  height: 360px;
+  justify-content: center;
+  margin: 40px 0;
+}
+button {
+  background: #17191e;
+  border: 0;
+  border-radius: 12px;
+  color: white;
+  font: inherit;
+  min-height: 48px;
+  padding: 0 20px;
+}
+@media (max-width: 680px) {
+  .filters {
+    grid-template-columns: 1fr;
+  }
+}
