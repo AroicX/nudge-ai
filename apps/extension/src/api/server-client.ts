@@ -1,5 +1,11 @@
 import {
   AgentStepResponseSchema,
+  PlannerResponseSchema,
+  ScopeResponseSchema,
+  type PlannerRequest,
+  type PlannerResponse,
+  type ScopeRequest,
+  type ScopeResponse,
   VoiceSessionConfigSchema,
   type AgentStepRequest,
   type AgentStepResponse,
@@ -43,6 +49,24 @@ export class ServerClient {
       signal,
     );
     return AgentStepResponseSchema.parse(await response.json());
+  }
+
+  async plan(request: PlannerRequest, signal: AbortSignal, provider?: 'openai' | 'ollama'): Promise<PlannerResponse> {
+    const response = await this.request(
+      '/api/agent/plan',
+      { method: 'POST', body: JSON.stringify(request), ...(provider ? { headers: { 'x-nudge-provider': provider } } : {}) },
+      signal,
+    );
+    return PlannerResponseSchema.parse(await response.json());
+  }
+
+  async scope(request: ScopeRequest, signal: AbortSignal, provider?: 'openai' | 'ollama'): Promise<ScopeResponse> {
+    const response = await this.request(
+      '/api/agent/scope',
+      { method: 'POST', body: JSON.stringify(request), ...(provider ? { headers: { 'x-nudge-provider': provider } } : {}) },
+      signal,
+    );
+    return ScopeResponseSchema.parse(await response.json());
   }
 
   async setProviderKey(apiKey: string): Promise<void> {
