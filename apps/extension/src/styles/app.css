@@ -165,6 +165,49 @@ header p {
   min-width: 0;
   outline: 0;
   padding: 10px 0;
+  flex: 1;
+}
+.icon-button.is-recording {
+  background: #fee4e2;
+  color: #b42318;
+}
+.permission-page {
+  align-items: center;
+  background: radial-gradient(circle at top, #eeecff, #f7f8fb 52%);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+.permission-card {
+  background: white;
+  border: 1px solid #e3e6ee;
+  border-radius: 24px;
+  box-shadow: 0 24px 70px rgba(15, 18, 28, 0.12);
+  max-width: 440px;
+  padding: 32px;
+  text-align: center;
+}
+.permission-card h1 {
+  margin: 18px 0 8px;
+}
+.permission-card p {
+  color: #687087;
+  line-height: 1.55;
+}
+.permission-card__icon {
+  align-items: center;
+  background: #eeecff;
+  border-radius: 18px;
+  color: #5145cd;
+  display: inline-flex;
+  height: 56px;
+  justify-content: center;
+  width: 56px;
+}
+.permission-card__success {
+  color: #067647 !important;
+  font-weight: 700;
 }
 .settings-modal input {
   border: 1px solid #cbd1df;

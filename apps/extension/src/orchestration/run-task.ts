@@ -81,6 +81,11 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
           dependencies.onStatus?.('Waiting for you');
           return task;
         }
+        if (response.decision.type === 'switch_tab') {
+          const reason = 'Cross-tab switching is not available in this build yet.';
+          dependencies.onStatus?.(reason);
+          return { status: 'failed', reason };
+        }
 
         const policy = evaluateAction(
           {

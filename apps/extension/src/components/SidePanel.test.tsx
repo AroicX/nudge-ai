@@ -67,6 +67,23 @@ describe('SidePanel', () => {
     expect(screen.queryByText('Action history')).toBeNull();
   });
 
+  it('puts completed dictation in the composer without sending it', async () => {
+    const onSend = vi.fn();
+    render(
+      <SidePanel
+        busy={false}
+        onSend={onSend}
+        onStop={vi.fn()}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+        onDictate={vi.fn().mockResolvedValue('Open the latest invoice')}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Dictate message' }));
+    expect(await screen.findByDisplayValue('Open the latest invoice')).toBeTruthy();
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it('copies each conversation message from the control beneath it', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {

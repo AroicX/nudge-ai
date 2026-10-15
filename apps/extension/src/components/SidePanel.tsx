@@ -25,6 +25,8 @@ interface SidePanelProps {
   onMuteVoice?: () => void;
   onInterruptVoice?: () => void;
   onPushToTalk?: () => void;
+  onDictate?: () => Promise<string | undefined>;
+  showRealtimeVoice?: boolean;
 }
 
 export function SidePanel({
@@ -41,9 +43,13 @@ export function SidePanel({
   onStartVoice = () => undefined,
   onEndVoice = () => undefined,
   onMuteVoice = () => undefined,
+  onDictate = async () => '',
+  showRealtimeVoice = true,
 }: SidePanelProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string>();
+  const [draft, setDraft] = useState('');
+  const [dictating, setDictating] = useState(false);
   const copyMessage = async (turn: ConversationTurn) => {
     await navigator.clipboard.writeText(turn.text);
     setCopiedId(turn.id);
@@ -91,7 +97,23 @@ export function SidePanel({
         busy={busy}
         voiceState={voiceState}
         voiceMuted={voiceMuted}
+        draft={draft}
+        showRealtimeVoice={showRealtimeVoice}
+        dictating={dictating}
         onSend={onSend}
+        onDraftChange={setDraft}
+        onDictate={() => {
+          void onDictate()
+            .then((text) => {
+              if (text === undefined) {
+                setDictating(true);
+                return;
+              }
+              if (text) setDraft(text);
+              setDictating(false);
+            })
+            .catch(() => setDictating(false));
+        }}
         onStop={onStop}
         onStartVoice={onStartVoice}
         onEndVoice={onEndVoice}

@@ -1,12 +1,17 @@
 import type { VoiceSessionState } from '@nudge/contracts';
-import { Mic, MicOff, PhoneOff, Send, Square } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { AudioLines, Mic, MicOff, PhoneOff, Send, Square } from 'lucide-react';
+import { type FormEvent } from 'react';
 
 export function Composer({
   busy,
   voiceState,
   voiceMuted,
+  draft,
+  showRealtimeVoice,
+  dictating,
   onSend,
+  onDraftChange,
+  onDictate,
   onStop,
   onStartVoice,
   onEndVoice,
@@ -15,20 +20,24 @@ export function Composer({
   busy: boolean;
   voiceState: VoiceSessionState;
   voiceMuted: boolean;
+  draft: string;
+  showRealtimeVoice: boolean;
+  dictating: boolean;
   onSend(text: string): void;
+  onDraftChange(text: string): void;
+  onDictate(): void;
   onStop(): void;
   onStartVoice(): void;
   onEndVoice(): void;
   onMuteVoice(): void;
 }) {
-  const [text, setText] = useState('');
   const voiceActive = !['idle', 'ended', 'failed'].includes(voiceState);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const value = text.trim();
+    const value = draft.trim();
     if (!value) return;
     onSend(value);
-    setText('');
+    onDraftChange('');
   };
 
   return (
@@ -38,8 +47,8 @@ export function Composer({
         aria-label="Tell Nudge what to do"
         placeholder="Ask Nudge to do something"
         autoComplete="off"
-        value={text}
-        onChange={(event) => setText(event.target.value)}
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
       />
       <div className="composer__actions">
         {busy ? (
@@ -52,7 +61,15 @@ export function Composer({
             <Square size={16} fill="currentColor" />
           </button>
         ) : null}
-        {voiceActive ? (
+        <button
+          type="button"
+          className={`icon-button icon-button--quiet${dictating ? ' is-recording' : ''}`}
+          aria-label={dictating ? 'Finish dictation' : 'Dictate message'}
+          onClick={onDictate}
+        >
+          {dictating ? <Square size={15} fill="currentColor" /> : <Mic size={18} />}
+        </button>
+        {showRealtimeVoice && voiceActive ? (
           <>
             <button
               type="button"
@@ -71,21 +88,21 @@ export function Composer({
               <PhoneOff size={18} />
             </button>
           </>
-        ) : (
+        ) : showRealtimeVoice ? (
           <button
             type="button"
             className="icon-button icon-button--quiet"
             aria-label="Start voice call"
             onClick={onStartVoice}
           >
-            <Mic size={19} />
+            <AudioLines size={19} />
           </button>
-        )}
+        ) : null}
         <button
           type="submit"
           className="icon-button icon-button--send"
           aria-label="Send message"
-          disabled={!text.trim()}
+          disabled={!draft.trim()}
         >
           <Send size={18} />
         </button>

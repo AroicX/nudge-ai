@@ -12,6 +12,7 @@ import {
 } from '../../src/voice/realtime-transport';
 import { VoiceSessionController } from '../../src/voice/voice-session-controller';
 import { createVoiceTaskBridge } from '../../src/voice/voice-task-bridge';
+import { openMicrophoneSetup, probeMicrophone } from '../../src/permissions/microphone';
 import '../../src/styles/app.css';
 
 const client = new ServerClient(
@@ -145,20 +146,40 @@ function App() {
     [],
   );
 
-  const togglePushToTalk = async () => {
+  const ensureMicrophone = async () => {
+    const setup = await browser.storage.local.get('microphoneSetupCompleted');
+    if (!setup.microphoneSetupCompleted) {
+      await openMicrophoneSetup();
+      state.setStatus('Finish microphone setup in the new tab, then try again.');
+      return false;
+    }
+    const permission = await probeMicrophone();
+    if (permission !== 'granted') {
+      await openMicrophoneSetup();
+      state.setStatus('Microphone access needs attention in the setup tab.');
+      return false;
+    }
+    return true;
+  };
+
+  const togglePushToTalk = async (): Promise<string | undefined> => {
     try {
       if (!pushRecording) {
+        if (!(await ensureMicrophone())) return '';
         await pushToTalkRef.current.start();
         setPushRecording(true);
         state.setStatus('Listening — tap again when finished.');
+        return undefined;
       } else {
         setPushRecording(false);
         const text = await pushToTalkRef.current.stop();
-        sendRef.current(text);
+        state.setStatus(text ? 'Dictation ready to review.' : 'No speech detected.');
+        return text;
       }
     } catch (error) {
       setPushRecording(false);
       state.setStatus(error instanceof Error ? error.message : 'Voice recording failed.');
+      return '';
     }
   };
   return (
@@ -189,7 +210,11 @@ function App() {
       voiceState={state.voiceState}
       voiceTranscript={state.voiceTranscript}
       voiceMuted={voiceMuted}
-      onStartVoice={() => void controllerRef.current?.start()}
+      onStartVoice={() =>
+        void ensureMicrophone().then((ready) => {
+          if (ready) return controllerRef.current?.start();
+        })
+      }
       onEndVoice={() => void controllerRef.current?.end()}
       onMuteVoice={() => {
         const next = !voiceMuted;
@@ -198,6 +223,7 @@ function App() {
       }}
       onInterruptVoice={() => controllerRef.current?.interrupt()}
       onPushToTalk={() => void togglePushToTalk()}
+      onDictate={togglePushToTalk}
     />
   );
 }
