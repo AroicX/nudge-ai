@@ -8,6 +8,10 @@ export default defineContentScript({
   matches: ['http://*/*', 'https://*/*'],
   cssInjectionMode: 'ui',
   main() {
+    // Guard against a second instance when the script is injected programmatically after load.
+    const marker = window as unknown as { __nudgeContentLoaded?: boolean };
+    if (marker.__nudgeContentLoaded) return;
+    marker.__nudgeContentLoaded = true;
     const adapter = createPageAdapter({
       document,
       window,

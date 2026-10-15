@@ -605,9 +605,9 @@ export class TaskController {
 
   async #observe(task: Task): Promise<Observation | null> {
     if (!task.snapshotFresh || !task.snapshot) {
-      const result = await this.deps.content.send(task.boundTabId, { type: 'observe' });
-      if (!result.snapshot) throw new Error('Nudge could not read the page.');
-      this.#noteSnapshot(task, result.snapshot);
+      const snapshot = await this.#readPage(task.boundTabId);
+      if (!snapshot) throw new Error('Nudge could not read the page.');
+      this.#noteSnapshot(task, snapshot);
     }
     task.snapshotFresh = false;
     const snapshot = task.snapshot!;
@@ -626,6 +626,20 @@ export class TaskController {
       }
     }
     return { tabId: task.boundTabId, snapshot, ...(screenshot ? { screenshot } : {}) };
+  }
+
+  /** Observe a tab, retrying briefly while a newly loaded page's content script starts. */
+  async #readPage(tabId: number): Promise<PageSnapshot | undefined> {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        const result = await this.deps.content.send(tabId, { type: 'observe' });
+        if (result.snapshot) return result.snapshot;
+      } catch {
+        /* page still loading; retry */
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+    return undefined;
   }
 
   #noteSnapshot(task: Task, snapshot: PageSnapshot): void {
@@ -937,10 +951,14 @@ export class TaskController {
       return;
     }
 
-    // Verify against a fresh observation.
-    const after = await this.deps.content.send(task.boundTabId, { type: 'observe' }).catch(() => undefined);
-    if (after?.snapshot) {
-      this.#noteSnapshot(task, after.snapshot);
+    // Let any navigation the action triggered finish, then verify against a fresh observation.
+    if (!['open_tab', 'activate_tab', 'close_tab'].includes(call.tool)) {
+      await this.deps.tabs.waitForComplete(task.boundTabId, 10_000).catch(() => undefined);
+    }
+    const afterSnapshot = await this.#readPage(task.boundTabId);
+    const after = afterSnapshot ? { snapshot: afterSnapshot } : undefined;
+    if (afterSnapshot) {
+      this.#noteSnapshot(task, afterSnapshot);
       task.snapshotFresh = true;
     }
     const expectation: Expectation =

@@ -79,7 +79,7 @@ export class FakeBrowser implements TabsPort, ContentPort {
     this.closed.push(tabId);
     this.removeTab(tabId);
   }
-  async waitForComplete() {}
+  async waitForComplete(_tabId?: number, _timeoutMs?: number) {}
   onRemoved(listener: (id: number) => void) {
     this.#removed.add(listener);
     return () => this.#removed.delete(listener);

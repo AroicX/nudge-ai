@@ -343,4 +343,36 @@ describe('TaskController', () => {
     expect(planner.requests[3]!.notes.join(' ')).toMatch(/0 not yet written/);
     expect(checkpoints.saves.at(-1)?.records[0]?.saved.destination).toMatchObject({ tabId: 2, rowHint: 'A2' });
   });
+
+  it('waits for navigation and retries observation while the next page starts', async () => {
+    const browser = new FakeBrowser().addTab(1, jobsPage());
+    const waits: number[] = [];
+    browser.waitForComplete = async (tabId: number) => {
+      waits.push(tabId);
+    };
+    let failures = 0;
+    const send = browser.send.bind(browser);
+    browser.send = async (tabId, request) => {
+      if (request.type === 'observe' && browser.executes().length === 1 && failures < 2) {
+        failures += 1;
+        throw new Error('Could not establish connection. Receiving end does not exist.');
+      }
+      return send(tabId, request);
+    };
+    browser.pages.get(1)!.onExecute = (_call, page) => {
+      page.url = 'https://jobs.test/list?page=2';
+      page.documentId = 'docA2';
+    };
+    const planner = new FakePlanner([
+      { toolCall: { tool: 'click', tabId: 1, elementId: 'docA:2' }, expectation: { kind: 'url_changed' } },
+      { toolCall: { tool: 'finish', summary: 'On page 2', evidence: ['url'] } },
+    ]);
+    const { controller, out } = make(browser, planner);
+    await controller.instruct('Go to the next page', 'text', 1);
+    await controller.idle();
+    expect(waits).toContain(1);
+    expect(failures).toBe(2);
+    expect(out.last()!.status).toBe('completed');
+    expect(out.last()!.report!.verified.join(' ')).toMatch(/page=2/);
+  });
 });

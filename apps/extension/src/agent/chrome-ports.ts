@@ -15,7 +15,8 @@ export function createChromeContentPort(): ContentPort {
       try {
         return await sendOnce(tabId, request);
       } catch (error) {
-        if (error instanceof Error && /invalid|ZodError/i.test(error.name + error.message) && !/Receiving end/i.test(error.message)) throw error;
+        if (!(error instanceof Error) || !/Receiving end does not exist|Could not establish connection/i.test(error.message)) throw error;
+        // Pages opened before install (or restricted reloads) lack the script; the script guards against double injection.
         await browser.scripting.executeScript({ target: { tabId }, files: ['/content-scripts/content.js'] });
         return sendOnce(tabId, request);
       }
