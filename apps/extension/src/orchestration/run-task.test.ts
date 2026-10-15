@@ -2,6 +2,7 @@ import type { AgentStepResponse, PageSnapshot, TaskState } from '@nudge/contract
 import { describe, expect, it, vi } from 'vitest';
 
 import { runTask } from './run-task';
+import { ProviderFallbackController } from './provider-fallback';
 
 const page = (snapshotId: string): PageSnapshot => ({
   snapshotId,
@@ -142,5 +143,28 @@ describe('runTask', () => {
       'completed',
     ]);
     expect(JSON.stringify(onTimelineStep.mock.calls)).not.toMatch(/reasoning|thoughts/i);
+  });
+
+  it('waits for explicit approval before retrying an Ollama step with OpenAI', async () => {
+    const execute = vi.fn();
+    const step = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Ollama model does not support tools'))
+      .mockResolvedValueOnce({
+        requestId: 'r1',
+        task: { ...task, status: 'completed' },
+        decision: { type: 'finish', taskId: 'task-1', message: 'Done', evidence: [] },
+      });
+    const fallback = new ProviderFallbackController();
+    const onFallbackRequest = vi.fn((request) => {
+      fallback.approveFallback(request.id, request.taskId);
+    });
+    const handle = runTask(
+      { tabId: 7, utterance: 'search', conversation: [], task: null, provider: 'ollama' },
+      { observe: async () => page('snap'), step, execute, fallback, onFallbackRequest },
+    );
+    await expect(handle.done).resolves.toMatchObject({ status: 'completed' });
+    expect(step.mock.calls.map((call) => call[2])).toEqual(['ollama', 'openai']);
+    expect(execute).not.toHaveBeenCalled();
   });
 });

@@ -82,7 +82,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     );
     registerAgentStepRoute(protectedRoutes, {
       authenticate,
-      providerFactory: () => router.create(selection),
+      providerFactory: (_apiKey, providerOverride) =>
+        router.create(providerOverride === 'openai' ? { provider: 'openai' } : selection),
       getApiKey: () => sessionKey ?? config.openAIApiKey,
       timeoutMs: options.requestTimeoutMs ?? 20_000,
       rateLimitMax: options.rateLimitMax ?? 30,

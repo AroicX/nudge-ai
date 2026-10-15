@@ -432,6 +432,21 @@ header p {
   color: #854a0e !important;
   padding: 10px;
 }
+.fallback-request {
+  background: #fffaeb;
+  border: 1px solid #fedf89;
+  border-radius: 14px;
+  padding: 12px;
+}
+.fallback-request p {
+  color: #854a0e;
+  font-size: 12px;
+  margin: 0 0 10px;
+}
+.fallback-request div {
+  display: flex;
+  gap: 8px;
+}
 @import 'tailwindcss';
 
 @import 'tailwindcss';

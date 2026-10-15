@@ -28,10 +28,18 @@ export class ServerClient {
     return response;
   }
 
-  async step(request: AgentStepRequest, signal: AbortSignal): Promise<AgentStepResponse> {
+  async step(
+    request: AgentStepRequest,
+    signal: AbortSignal,
+    provider?: 'openai' | 'ollama',
+  ): Promise<AgentStepResponse> {
     const response = await this.request(
       '/api/agent/step',
-      { method: 'POST', body: JSON.stringify(request) },
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+        ...(provider ? { headers: { 'x-nudge-provider': provider } } : {}),
+      },
       signal,
     );
     return AgentStepResponseSchema.parse(await response.json());

@@ -25,7 +25,9 @@ export function registerAgentStepRoute(app: FastifyInstance, options: AgentStepR
       const controller = new AbortController();
       const timeoutError = new Error('Provider request timed out.');
       const timeout = setTimeout(() => controller.abort(timeoutError), options.timeoutMs);
-      const provider = options.providerFactory(options.getApiKey());
+      const overrideHeader = request.headers['x-nudge-provider'];
+      const providerOverride = overrideHeader === 'openai' || overrideHeader === 'ollama' ? overrideHeader : undefined;
+      const provider = options.providerFactory(options.getApiKey(), providerOverride);
       try {
         const result = await Promise.race([
           provider.step(input.data, controller.signal),

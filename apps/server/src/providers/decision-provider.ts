@@ -5,4 +5,7 @@ export interface DecisionProvider {
   close?(): void | Promise<void>;
 }
 
-export type DecisionProviderFactory = (apiKey: string) => DecisionProvider;
+export type DecisionProviderFactory = (
+  apiKey: string,
+  providerOverride?: 'openai' | 'ollama',
+) => DecisionProvider;

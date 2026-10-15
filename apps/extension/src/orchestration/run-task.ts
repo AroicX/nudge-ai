@@ -9,17 +9,23 @@ import type {
   TimelineStep,
 } from '@nudge/contracts';
 import { CancellationGate, evaluateAction } from '@nudge/core';
+import type { ProviderFallbackController, ProviderFallbackRequest } from './provider-fallback';
 
 export interface RunTaskInput {
   tabId: number;
   utterance: string;
   conversation: ConversationTurn[];
   task: TaskState | null;
+  provider?: 'openai' | 'ollama';
 }
 
 export interface RunTaskDependencies {
   observe(signal: AbortSignal): Promise<PageSnapshot>;
-  step(request: AgentStepRequest, signal: AbortSignal): Promise<AgentStepResponse>;
+  step(
+    request: AgentStepRequest,
+    signal: AbortSignal,
+    provider?: 'openai' | 'ollama',
+  ): Promise<AgentStepResponse>;
   execute(
     action: BrowserAction,
     guard: { tabId: number; documentId: string; cancellationGeneration: number },
@@ -29,6 +35,8 @@ export interface RunTaskDependencies {
   onAction?: (result: ActionResult) => void;
   onMessage?: (message: string) => void;
   onTimelineStep?: (step: TimelineStep) => void;
+  fallback?: ProviderFallbackController;
+  onFallbackRequest?: (request: ProviderFallbackRequest) => void;
 }
 
 export interface TaskRunHandle {
@@ -63,8 +71,7 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
         timeline({ id: decideId, label: 'Choosing the next safe action', status: 'active' });
         dependencies.onStatus?.('Working on it…');
         const requestId = crypto.randomUUID();
-        const response = await dependencies.step(
-          {
+        const stepRequest = {
             requestId,
             taskId: task?.id ?? crypto.randomUUID(),
             cancellationGeneration: generation,
@@ -72,9 +79,22 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
             conversation: input.conversation,
             page,
             task,
-          },
-          controller.signal,
-        );
+          } satisfies AgentStepRequest;
+        let response: AgentStepResponse;
+        try {
+          response = await dependencies.step(stepRequest, controller.signal, input.provider);
+        } catch (error) {
+          if (input.provider !== 'ollama' || !dependencies.fallback) throw error;
+          const reason = error instanceof Error ? error.message : 'Ollama could not complete this step.';
+          timeline({ id: decideId, label: 'Ollama needs help', status: 'error', detail: reason });
+          const pending = dependencies.fallback.request(stepRequest.taskId, reason);
+          dependencies.onFallbackRequest?.(pending.request);
+          if ((await pending.decision) !== 'approved') {
+            return { status: 'failed', reason: 'OpenAI fallback was not approved.' };
+          }
+          timeline({ id: decideId, label: 'Retrying this step with approved OpenAI access', status: 'active' });
+          response = await dependencies.step(stepRequest, controller.signal, 'openai');
+        }
         gate.assertActive(generation);
         timeline({ id: decideId, label: 'Chose the next safe action', status: 'completed' });
         task = {

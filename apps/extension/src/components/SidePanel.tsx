@@ -15,6 +15,7 @@ import { ProviderSettings, type ProviderHealth } from './ProviderSettings';
 import { Status } from './Status';
 import { LiveTranscript } from './LiveTranscript';
 import { ExecutionTimeline } from './ExecutionTimeline';
+import type { ProviderFallbackRequest } from '../orchestration/provider-fallback';
 
 interface SidePanelProps {
   busy: boolean;
@@ -44,6 +45,9 @@ interface SidePanelProps {
   providerHealth?: ProviderHealth | undefined;
   onProviderSelection?: (value: ProviderSelection) => void;
   onRefreshProviders?: () => void;
+  fallbackRequest?: ProviderFallbackRequest | undefined;
+  onApproveFallback?: () => void;
+  onDeclineFallback?: () => void;
 }
 
 export function SidePanel({
@@ -68,6 +72,9 @@ export function SidePanel({
   providerHealth,
   onProviderSelection = () => undefined,
   onRefreshProviders = () => undefined,
+  fallbackRequest,
+  onApproveFallback = () => undefined,
+  onDeclineFallback = () => undefined,
 }: SidePanelProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string>();
@@ -98,6 +105,15 @@ export function SidePanel({
       <Status value={status} />
       <LiveTranscript text={voiceTranscript} />
       <ExecutionTimeline steps={timeline} />
+      {fallbackRequest ? (
+        <section className="fallback-request" aria-label="Provider approval">
+          <p>{fallbackRequest.reason}</p>
+          <div>
+            <button type="button" onClick={onApproveFallback}>Use OpenAI for this task</button>
+            <button type="button" className="secondary" onClick={onDeclineFallback}>Stop</button>
+          </div>
+        </section>
+      ) : null}
       <section className="conversation" aria-label="Conversation">
         {conversation.length ? (
           conversation.map((turn) => (

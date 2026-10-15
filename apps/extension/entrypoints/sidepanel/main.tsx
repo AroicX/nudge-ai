@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { SidePanel } from '../../src/components/SidePanel';
 import { ServerClient } from '../../src/api/server-client';
 import { runTask, type TaskRunHandle } from '../../src/orchestration/run-task';
+import { ProviderFallbackController, type ProviderFallbackRequest } from '../../src/orchestration/provider-fallback';
 import { useNudgeStore } from '../../src/state/use-nudge-store';
 import { PushToTalkTransport } from '../../src/voice/push-to-talk-transport';
 import {
@@ -48,6 +49,8 @@ function App() {
   const [pushRecording, setPushRecording] = useState(false);
   const [providerSelection, setProviderSelection] = useState<ProviderSelection>({ provider: 'openai' });
   const [providerHealth, setProviderHealth] = useState<Awaited<ReturnType<typeof client.getProviderHealth>>>();
+  const [fallbackRequest, setFallbackRequest] = useState<ProviderFallbackRequest>();
+  const fallbackRef = useRef<ProviderFallbackController | undefined>(undefined);
   const refreshProviders = async (baseUrl = providerSelection.provider === 'ollama' ? providerSelection.baseUrl : undefined) => {
     setProviderHealth(await client.getProviderHealth(baseUrl));
   };
@@ -73,12 +76,16 @@ function App() {
     };
     state.addTurn(userTurn);
     state.setBusy(true);
+    const fallback = new ProviderFallbackController();
+    fallbackRef.current = fallback;
+    setFallbackRequest(undefined);
     activeRun = runTask(
       {
         tabId: tab.id,
         utterance,
         conversation: [...state.conversation, userTurn],
         task: state.task,
+        provider: providerSelection.provider,
       },
       {
         observe: async () =>
@@ -108,6 +115,8 @@ function App() {
             createdAt: new Date().toISOString(),
           }),
         onTimelineStep: state.setTimelineStep,
+        fallback,
+        onFallbackRequest: setFallbackRequest,
       },
     );
     const result = await activeRun.done;
@@ -115,6 +124,7 @@ function App() {
     if ('id' in result) state.setTask(result);
     else if (result.reason) state.setStatus(result.reason);
     state.setBusy(false);
+    setFallbackRequest(undefined);
   };
   sendRef.current = (text) => void send(text);
 
@@ -217,6 +227,15 @@ function App() {
       providerHealth={providerHealth}
       onProviderSelection={(selection) => void selectProvider(selection)}
       onRefreshProviders={() => void refreshProviders()}
+      fallbackRequest={fallbackRequest}
+      onApproveFallback={() => {
+        if (fallbackRequest) fallbackRef.current?.approveFallback(fallbackRequest.id, fallbackRequest.taskId);
+        setFallbackRequest(undefined);
+      }}
+      onDeclineFallback={() => {
+        if (fallbackRequest) fallbackRef.current?.declineFallback(fallbackRequest.id, fallbackRequest.taskId);
+        setFallbackRequest(undefined);
+      }}
       actions={state.actions}
       onSend={(text) => void send(text)}
       onStop={() => activeRun?.stop()}
