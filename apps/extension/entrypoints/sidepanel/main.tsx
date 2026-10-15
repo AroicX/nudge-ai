@@ -5,7 +5,10 @@ import { createRoot } from 'react-dom/client';
 import { SidePanel } from '../../src/components/SidePanel';
 import { ServerClient } from '../../src/api/server-client';
 import type { TaskRunHandle } from '../../src/orchestration/run-task';
-import { runBrowserTask } from '../../src/orchestration/browser-task-runner';
+import {
+  runBrowserTask,
+  sanitizeSourceReference,
+} from '../../src/orchestration/browser-task-runner';
 import { ProviderFallbackController, type ProviderFallbackRequest } from '../../src/orchestration/provider-fallback';
 import { useNudgeStore } from '../../src/state/use-nudge-store';
 import { PushToTalkTransport } from '../../src/voice/push-to-talk-transport';
@@ -69,11 +72,15 @@ function App() {
       state.setStatus('This page is not available to Nudge.');
       return;
     }
+    const knownTabs = await tabRegistry.list();
+    const originSource = knownTabs.find((candidate) => candidate.tabId === tab.id);
+    const safeOriginSource = originSource && sanitizeSourceReference(originSource);
     const userTurn = {
       id: crypto.randomUUID(),
       role: 'user' as const,
       text: utterance,
       createdAt: new Date().toISOString(),
+      sources: safeOriginSource ? [safeOriginSource] : [],
     };
     state.addTurn(userTurn);
     state.setBusy(true);
@@ -109,12 +116,13 @@ function App() {
           }),
         onStatus: state.setStatus,
         onAction: state.addAction,
-        onMessage: (text) =>
+        onMessage: (text, sources) =>
           state.addTurn({
             id: crypto.randomUUID(),
             role: 'assistant',
             text,
             createdAt: new Date().toISOString(),
+            sources: sources ?? [],
           }),
         onTimelineStep: state.setTimelineStep,
         fallback,

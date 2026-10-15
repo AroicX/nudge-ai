@@ -33,6 +33,11 @@ function sanitizeSource(value: SourceReference): SourceReference | undefined {
 }
 
 function sanitizeTurn(turn: PersistedTurn): PersistedTurn {
+  const sources = new Map<string, SourceReference>();
+  for (const source of turn.sources ?? []) {
+    const safe = sanitizeSource(source);
+    if (safe) sources.set(new URL(safe.url).href, safe);
+  }
   return {
     id: turn.id,
     role: turn.role,
@@ -40,10 +45,7 @@ function sanitizeTurn(turn: PersistedTurn): PersistedTurn {
     createdAt: turn.createdAt,
     ...(turn.provider ? { provider: turn.provider } : {}),
     ...(turn.model ? { model: turn.model } : {}),
-    sources: (turn.sources ?? []).flatMap((source) => {
-      const safe = sanitizeSource(source);
-      return safe ? [safe] : [];
-    }),
+    sources: [...sources.values()],
   };
 }
 

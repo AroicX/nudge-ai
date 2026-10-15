@@ -100,4 +100,13 @@ describe('history store', () => {
     await createHistoryStore(storage).clearHistory();
     expect(storage.remove).toHaveBeenCalledWith('nudgeConversationV1');
   });
+
+  it('collapses duplicate sources by normalized URL', async () => {
+    const storage = memoryStorage();
+    await createHistoryStore(storage).saveHistory({
+      ...conversation,
+      turns: [{ ...conversation.turns[0]!, sources: [source, { ...source, tabId: 9 }] }],
+    });
+    expect((storage.value() as PersistedConversation).turns[0]!.sources).toHaveLength(1);
+  });
 });

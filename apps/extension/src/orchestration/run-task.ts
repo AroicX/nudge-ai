@@ -8,6 +8,7 @@ import type {
   TaskState,
   TimelineStep,
   BrowserContext,
+  SourceReference,
 } from '@nudge/contracts';
 import { CancellationGate, evaluateAction } from '@nudge/core';
 import type { ProviderFallbackController, ProviderFallbackRequest } from './provider-fallback';
@@ -35,7 +36,7 @@ export interface RunTaskDependencies {
   ): Promise<ActionResult>;
   onStatus?: (status: string) => void;
   onAction?: (result: ActionResult) => void;
-  onMessage?: (message: string) => void;
+  onMessage?: (message: string, sources?: SourceReference[]) => void;
   onTimelineStep?: (step: TimelineStep) => void;
   fallback?: ProviderFallbackController;
   onFallbackRequest?: (request: ProviderFallbackRequest) => void;

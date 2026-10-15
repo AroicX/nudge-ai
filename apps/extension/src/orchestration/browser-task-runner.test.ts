@@ -71,4 +71,25 @@ describe('runBrowserTask', () => {
     );
     await expect(handle.done).resolves.toMatchObject({ status: 'failed', reason: expect.stringMatching(/not available/i) });
   });
+
+  it('attaches only freshly observed sources and deduplicates normalized sensitive URLs', async () => {
+    const onMessage = vi.fn();
+    const tabs = {
+      list: vi.fn().mockResolvedValue([tab(1, 'https://verify.test/?otp=123456&view=login', true)]),
+      activate: vi.fn(), open: vi.fn(),
+    };
+    const handle = await runBrowserTask(
+      { tabId: 1, utterance: 'Inspect', conversation: [], task: null },
+      {
+        tabs,
+        observeTab: async () => ({ ...page(1), url: 'https://verify.test/?otp=123456&view=login' }),
+        executeOnTab: vi.fn(), onMessage,
+        step: async () => ({ requestId: '1', task: task('completed'), decision: { type: 'finish', taskId: 'task-1', message: 'Done', evidence: [{ kind: 'page_text', text: 'Found' }] } }),
+      },
+    );
+    await handle.done;
+    expect(onMessage).toHaveBeenCalledWith('Done', [
+      expect.objectContaining({ url: 'https://verify.test/?view=login' }),
+    ]);
+  });
 });

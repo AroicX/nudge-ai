@@ -20,7 +20,7 @@ interface NudgeState {
   timeline: TimelineStep[];
   setBusy(busy: boolean): void;
   setStatus(status: string): void;
-  addTurn(turn: ConversationTurn): void;
+  addTurn(turn: ConversationTurn | PersistedTurn): void;
   hydrateHistory(): Promise<void>;
   addAction(action: ActionResult): void;
   setTask(task: TaskState | null): void;
@@ -43,7 +43,7 @@ export const useNudgeStore = create<NudgeState>((set) => ({
   setStatus: (status) => set({ status }),
   addTurn: (turn) =>
     set((state) => {
-      const conversation = [...state.conversation, { ...turn, sources: [] }];
+      const conversation = [...state.conversation, { ...turn, sources: 'sources' in turn ? turn.sources : [] }];
       void historyStore.saveHistory({ version: 1, turns: conversation, timeline: [] });
       return { conversation };
     }),
