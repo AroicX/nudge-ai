@@ -145,3 +145,15 @@ export type PanelMessage = z.infer<typeof PanelMessageSchema>;
 export type ControllerMessage = z.infer<typeof ControllerMessageSchema>;
 export type ContentRequest = z.infer<typeof ContentRequestSchema>;
 export type ContentResult = z.infer<typeof ContentResultSchema>;
+
+export const ContentEventSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('content.timed_ended'),
+      repeatId: z.string().min(1).max(120),
+      reason: z.enum(['stopped', 'end_reached', 'max_duration', 'navigated']),
+    })
+    .strict(),
+]);
+
+export type ContentEvent = z.infer<typeof ContentEventSchema>;
