@@ -13,6 +13,7 @@ import {
 import { VoiceSessionController } from '../../src/voice/voice-session-controller';
 import { createVoiceTaskBridge } from '../../src/voice/voice-task-bridge';
 import { openMicrophoneSetup, probeMicrophone } from '../../src/permissions/microphone';
+import { TabRegistry } from '../../src/tabs/tab-registry';
 import '../../src/styles/app.css';
 
 const client = new ServerClient(
@@ -21,6 +22,7 @@ const client = new ServerClient(
 );
 let activeRun: TaskRunHandle | undefined;
 let activeRunId = 0;
+const tabRegistry = new TabRegistry();
 
 async function sendToPage<T>(tabId: number, message: unknown): Promise<T> {
   try {
@@ -138,10 +140,13 @@ function App() {
   }
 
   useEffect(
-    () => () => {
-      void controllerRef.current?.end();
-      void pushToTalkRef.current.cancel();
-      activeRun?.stop();
+    () => {
+      void state.hydrateHistory();
+      return () => {
+        void controllerRef.current?.end();
+        void pushToTalkRef.current.cancel();
+        activeRun?.stop();
+      };
     },
     [],
   );
@@ -207,6 +212,15 @@ function App() {
           )
       }
       onClearHistory={state.clearHistory}
+      onOpenSource={(source) =>
+        void tabRegistry.resolveSource(source).then(async (resolved) => {
+          if (resolved.kind === 'existing' && resolved.tab) {
+            await tabRegistry.activate(resolved.tab.tabId);
+          } else {
+            await tabRegistry.open(resolved.url);
+          }
+        })
+      }
       voiceState={state.voiceState}
       voiceTranscript={state.voiceTranscript}
       voiceMuted={voiceMuted}

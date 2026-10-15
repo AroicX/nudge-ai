@@ -1,4 +1,10 @@
-import type { ActionResult, ConversationTurn, VoiceSessionState } from '@nudge/contracts';
+import type {
+  ActionResult,
+  ConversationTurn,
+  PersistedTurn,
+  SourceReference,
+  VoiceSessionState,
+} from '@nudge/contracts';
 import { Check, Copy, Settings } from 'lucide-react';
 import { useState } from 'react';
 
@@ -10,7 +16,9 @@ import { LiveTranscript } from './LiveTranscript';
 interface SidePanelProps {
   busy: boolean;
   status?: string;
-  conversation?: ConversationTurn[];
+  conversation?: Array<
+    ConversationTurn & Partial<Pick<PersistedTurn, 'sources' | 'provider' | 'model'>>
+  >;
   actions?: ActionResult[];
   onSend(text: string): void;
   onStop(): void;
@@ -27,6 +35,7 @@ interface SidePanelProps {
   onPushToTalk?: () => void;
   onDictate?: () => Promise<string | undefined>;
   showRealtimeVoice?: boolean;
+  onOpenSource?: (source: SourceReference) => void;
 }
 
 export function SidePanel({
@@ -45,6 +54,7 @@ export function SidePanel({
   onMuteVoice = () => undefined,
   onDictate = async () => '',
   showRealtimeVoice = true,
+  onOpenSource = () => undefined,
 }: SidePanelProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string>();
@@ -79,6 +89,23 @@ export function SidePanel({
           conversation.map((turn) => (
             <article className={`message message--${turn.role}`} key={turn.id}>
               <p className={`turn turn--${turn.role}`}>{turn.text}</p>
+              {turn.sources?.length ? (
+                <div className="source-chips">
+                  {turn.sources.map((source) => (
+                    <button
+                      type="button"
+                      className="source-chip"
+                      key={`${source.tabId}:${source.url}`}
+                      aria-label={`Open ${source.title} on ${source.domain}`}
+                      onClick={() => onOpenSource(source)}
+                    >
+                      {source.favIconUrl ? <img src={source.favIconUrl} alt="" /> : null}
+                      <span>{source.domain}</span>
+                      <small>{source.title}</small>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <button
                 type="button"
                 className="copy-button"

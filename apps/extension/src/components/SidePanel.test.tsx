@@ -107,4 +107,42 @@ describe('SidePanel', () => {
     fireEvent.click(copyButtons[1]!);
     expect(writeText).toHaveBeenCalledWith('I found one');
   });
+
+  it('renders linked source chips beneath a message', () => {
+    const onOpenSource = vi.fn();
+    render(
+      <SidePanel
+        busy={false}
+        conversation={[
+          {
+            id: 'turn-source',
+            role: 'assistant',
+            text: 'Found it',
+            createdAt: '2026-10-15T20:00:00.000Z',
+            sources: [
+              {
+                tabId: 3,
+                windowId: 1,
+                active: false,
+                url: 'https://mail.google.com/',
+                title: 'Netflix payment reminder',
+                domain: 'mail.google.com',
+                discarded: false,
+                lastSeenAt: '2026-10-15T20:00:00.000Z',
+              },
+            ],
+          },
+        ]}
+        onOpenSource={onOpenSource}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open Netflix payment reminder on mail.google.com' }),
+    );
+    expect(onOpenSource).toHaveBeenCalledWith(expect.objectContaining({ tabId: 3 }));
+  });
 });

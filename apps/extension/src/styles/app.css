@@ -133,6 +133,44 @@ header p {
 .copy-button:hover {
   color: #4036a7;
 }
+.source-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.source-chip {
+  align-items: center;
+  background: #f0f1f5;
+  color: #3b4253;
+  display: grid;
+  grid-template-columns: 16px auto;
+  min-height: 34px;
+  max-width: 240px;
+  padding: 6px 9px;
+  text-align: left;
+}
+.source-chip img {
+  grid-row: 1 / 3;
+  height: 14px;
+  margin-right: 6px;
+  width: 14px;
+}
+.source-chip span,
+.source-chip small {
+  grid-column: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.source-chip span {
+  font-size: 11px;
+  font-weight: 700;
+}
+.source-chip small {
+  color: #687087;
+  font-size: 10px;
+}
 .turn--user {
   align-self: flex-end;
   background: #6254e7;
