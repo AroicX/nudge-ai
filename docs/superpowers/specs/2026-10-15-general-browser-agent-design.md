@@ -111,7 +111,7 @@ Screenshots (`ScreenshotFrame`):
 
 `CdpExecutor` (optional):
 
-- `debugger` is an `optional_permissions` entry, requested with `chrome.permissions.request` from a user gesture in the side panel the first time a task needs trusted input (canvas, visual actions, or a DOM action the verifier found ineffective). The panel explains that Chrome shows a "started debugging this browser" bar while attached.
+- `debugger` is a required manifest permission. (Revised during implementation: Chrome's permissions documentation lists `debugger` among permissions that cannot be optional; the user chose "required" over a DOM-only or two-build alternative.) Nudge attaches only when a step needs trusted input (canvas or visual actions) and the side panel explains that Chrome shows a "started debugging this browser" bar while attached.
 - Attaches only to the task's bound tab (`{tabId}`), protocol `1.3`. Uses only `Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`, `Input.insertText`. No other method is reachable from tool calls.
 - Detaches on task finish, cancellation, pause, tab close, or idle for 30 s. Handles `onDetach` (`target_closed`, `canceled_by_user`) by marking capability lost and asking the user; handles attach failure (DevTools open, policy restriction) by falling back to DOM-only with an explicit note.
 - Coordinates come from a fresh `ScreenshotFrame` (css viewport space) or from an element's rect centre.

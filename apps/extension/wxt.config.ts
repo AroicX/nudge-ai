@@ -28,6 +28,10 @@ function requirePairingSecret() {
   };
 }
 
+// `debugger` cannot be an optional permission in Chrome. It is used only for trusted
+// pointer/keyboard input on the task's own tab, attached on demand and detached afterwards.
+const permissions = ['activeTab', 'scripting', 'sidePanel', 'storage', 'tabs', 'debugger'];
+
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   vite: () => ({
@@ -37,7 +41,7 @@ export default defineConfig({
   manifest: {
     name: 'Nudge',
     description: 'A fast, conversational browser assistant that acts with you in control.',
-    permissions: ['activeTab', 'scripting', 'sidePanel', 'storage', 'tabs'],
+    permissions,
     host_permissions: ['http://*/*', 'https://*/*'],
     action: { default_title: 'Open Nudge' },
     side_panel: { default_path: 'sidepanel.html' },

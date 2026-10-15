@@ -22,3 +22,10 @@ describe('extension host permissions', () => {
     );
   });
 });
+
+describe('debugger permission', () => {
+  it('is a required permission because Chrome does not allow it to be optional', () => {
+    expect((config.manifest as { permissions: string[] }).permissions).toContain('debugger');
+    expect(config.manifest).not.toHaveProperty('optional_permissions');
+  });
+});

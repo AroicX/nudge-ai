@@ -15,7 +15,7 @@
 - Do not rebuild: keep Cloud Orb, conversation UI, ProviderSettings, microphone onboarding, history store, pairing-secret backend, Realtime transport.
 - No arbitrary script execution, shell, raw CDP passthrough, or extension self-modification reachable from tool calls.
 - CDP methods used: only `Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`, `Input.insertText`, and (screenshot fallback only) `Page.captureScreenshot`. Protocol version `1.3`. Attach only to the task's bound tab.
-- `debugger` is in `optional_permissions` (production). The e2e build (`WXT_PUBLIC_NUDGE_E2E=1`) moves it to `permissions` so Playwright needs no prompt; this is test-only.
+- `debugger` is a required permission (Chrome does not allow it to be optional — see ledger ruling, user-approved). Attach only on demand to the task's bound tab.
 - Budgets: 60 tool calls and 15 minutes per run segment; repeat threshold 3; failed re-plans before partial: 2.
 - Screenshot frame TTL 30 000 ms; `captureVisibleTab` ≤ 2 calls/s.
 - OTP: 4–8 digits, freshness ≤ 15 min when a timestamp is visible, envelope TTL 120 000 ms, never submit.

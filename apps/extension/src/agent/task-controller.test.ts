@@ -278,4 +278,43 @@ describe('TaskController', () => {
     expect(out.last()!.authorization!.categories).not.toContain('delete_permanent');
     expect(out.last()!.report!.skipped.length + out.last()!.report!.unverified.length).toBeGreaterThan(0);
   });
+
+  it('falls back with an explanation when trusted input cannot attach', async () => {
+    const browser = new FakeBrowser().addTab(1, { ...jobsPage(), inaccessible: ['canvas'] });
+    const screenshots = {
+      capture: vi.fn(async (tabId: number, snapshot: { documentId: string; url: string }) => ({
+        dataUrl: 'data:image/jpeg;base64,AAAA',
+        frame: {
+          screenshotId: 'shot_1', tabId, documentId: snapshot.documentId, url: snapshot.url, capturedAt: Date.now(),
+          viewport: { cssWidth: 1000, cssHeight: 800, devicePixelRatio: 1, scrollX: 0, scrollY: 0 },
+          imageWidth: 1000, imageHeight: 800, coordinateSpace: 'css_viewport' as const, mutationCounterAtCapture: 0,
+        },
+      })),
+    };
+    const cdp = {
+      available: vi.fn(async () => true),
+      attach: vi.fn(async () => {
+        throw new Error('Chrome DevTools or another debugger is already attached to this tab. Close DevTools and try again.');
+      }),
+      detach: vi.fn(async () => undefined),
+      click: vi.fn(), drag: vi.fn(), key: vi.fn(), insertText: vi.fn(), captureScreenshot: vi.fn(),
+      attachedTabId: () => undefined,
+      onLost: () => () => undefined,
+    };
+    const planner = new FakePlanner(
+      [
+        { toolCall: { tool: 'observe_tab', tabId: 1, screenshot: true } },
+        { toolCall: { tool: 'click_at', tabId: 1, screenshotId: 'shot_1', x: 50, y: 50 } },
+        { toolCall: { tool: 'report_partial', done: [], remaining: ['Edit the canvas'], reason: 'Trusted input unavailable' } },
+      ],
+      { categories: ['read', 'navigate', 'edit'] },
+    );
+    const { controller, out } = make(browser, planner, { screenshots, cdp, capabilities: () => ({ vision: true }) });
+    await controller.instruct('Edit the design canvas', 'text', 1);
+    await controller.idle();
+    expect(out.messages.some((message) => message.type === 'need_capability' && /DevTools/.test(message.reason))).toBe(true);
+    expect(cdp.click).not.toHaveBeenCalled();
+    expect(planner.requests[2]!.lastResult).toMatchObject({ ok: false });
+    expect(out.last()!.status).toBe('partially_completed');
+  });
 });

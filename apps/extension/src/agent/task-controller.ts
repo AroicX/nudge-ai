@@ -1023,7 +1023,17 @@ export class TaskController {
 
   async #executeVisual(task: Task, call: Extract<ToolCall, { tool: 'click_at' | 'double_click_at' | 'drag_at' | 'type_at' }>, documentId: string): Promise<ContentResult> {
     const cdp = this.deps.cdp!;
-    if (cdp.attachedTabId() !== task.boundTabId) await cdp.attach(task.boundTabId);
+    if (cdp.attachedTabId() !== task.boundTabId) {
+      try {
+        await cdp.attach(task.boundTabId);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Trusted input is unavailable.';
+        this.#capability = 'dom_only';
+        this.deps.emit({ type: 'need_capability', capability: 'trusted_input', reason: reason.slice(0, 1_000) });
+        return { ok: false, detail: reason, changed: false, documentId };
+      }
+    }
+    this.#capability = 'dom_plus_trusted_input';
     const point = call.tool === 'drag_at' ? call.from : { x: call.x, y: call.y };
     await this.deps.content.send(task.boundTabId, { type: 'cursor', x: point.x, y: point.y }).catch(() => undefined);
     if (call.tool === 'click_at') await cdp.click(call.x, call.y);
