@@ -1,4 +1,4 @@
-import type { AgentStepResponse, PageSnapshot, TaskState } from '@nudge/contracts';
+import { AgentStepRequestSchema, type AgentStepResponse, type PageSnapshot, type TaskState } from '@nudge/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
 import { runTask } from './run-task';
@@ -33,6 +33,65 @@ const task: TaskState = {
 };
 
 describe('runTask', () => {
+  it('strips persisted UI metadata before sending conversation turns to a provider', async () => {
+    const step = vi.fn(async (request) => {
+      AgentStepRequestSchema.parse(request);
+      return {
+        requestId: 'r1',
+        task: { ...task, status: 'completed' as const },
+        decision: { type: 'finish' as const, taskId: 'task-1', message: 'Done', evidence: [] },
+      };
+    });
+    const conversation = [
+      {
+        id: 'turn-1',
+        role: 'user' as const,
+        text: 'Find a kettle',
+        createdAt: '2026-10-15T21:00:00.000Z',
+        provider: 'ollama',
+        model: 'qwen3',
+        sources: [{ tabId: 7, url: 'https://shop.example/' }],
+      },
+    ];
+
+    const handle = runTask(
+      { tabId: 7, utterance: 'Find a kettle', conversation, task: null },
+      { observe: async () => page('snap-1'), step, execute: vi.fn() },
+    );
+
+    await expect(handle.done).resolves.toMatchObject({ status: 'completed' });
+    expect(step.mock.calls[0]?.[0].conversation).toEqual([
+      {
+        id: 'turn-1',
+        role: 'user',
+        text: 'Find a kettle',
+        createdAt: '2026-10-15T21:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('uses the timeline instead of generic working status messages', async () => {
+    const onStatus = vi.fn();
+    const handle = runTask(
+      { tabId: 7, utterance: 'search', conversation: [], task: null },
+      {
+        observe: async () => page('snap-1'),
+        step: async () => ({
+          requestId: 'r1',
+          task: { ...task, status: 'completed' },
+          decision: { type: 'finish', taskId: 'task-1', message: 'Done', evidence: [] },
+        }),
+        execute: vi.fn(),
+        onStatus,
+      },
+    );
+
+    await handle.done;
+    expect(onStatus).not.toHaveBeenCalledWith('Reading this page…');
+    expect(onStatus).not.toHaveBeenCalledWith('Working on it…');
+    expect(onStatus).toHaveBeenCalledWith('Done');
+  });
+
   it('re-observes after each mutation before asking for another decision', async () => {
     const order: string[] = [];
     const observe = vi.fn(async () => {

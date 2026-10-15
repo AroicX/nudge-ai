@@ -7,7 +7,7 @@ import { SidePanel } from './SidePanel';
 afterEach(cleanup);
 
 describe('SidePanel', () => {
-  it('uses a single-line composer and keeps Stop available while work is active', () => {
+  it('uses a single-line composer and prevents duplicate sends while work is active', () => {
     const onSend = vi.fn();
     render(
       <SidePanel busy onSend={onSend} onStop={vi.fn()} onSaveKey={vi.fn()} onClearKey={vi.fn()} />,
@@ -18,7 +18,10 @@ describe('SidePanel', () => {
       target: { value: 'Find an iPhone 16' },
     });
     fireEvent.submit(screen.getByRole('form', { name: 'Message Nudge' }));
-    expect(onSend).toHaveBeenCalledWith('Find an iPhone 16');
+    expect(onSend).not.toHaveBeenCalled();
+    expect((screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
     expect((screen.getByRole('button', { name: 'Stop' }) as HTMLButtonElement).disabled).toBe(
       false,
     );

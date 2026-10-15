@@ -65,11 +65,13 @@ function App() {
     state.setStatus(selection.provider === 'ollama' ? `Using local Ollama: ${selection.model}` : 'Using OpenAI.');
   };
   const send = async (utterance: string) => {
-    activeRun?.stop();
+    if (useNudgeStore.getState().busy) return;
+    state.setBusy(true);
     const runId = ++activeRunId;
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
     if (tab?.id === undefined) {
       state.setStatus('This page is not available to Nudge.');
+      state.setBusy(false);
       return;
     }
     const knownTabs = await tabRegistry.list();
@@ -83,7 +85,6 @@ function App() {
       sources: safeOriginSource ? [safeOriginSource] : [],
     };
     state.addTurn(userTurn);
-    state.setBusy(true);
     const fallback = new ProviderFallbackController();
     fallbackRef.current = fallback;
     setFallbackRequest(undefined);

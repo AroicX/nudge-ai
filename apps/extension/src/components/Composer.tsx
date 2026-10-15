@@ -34,6 +34,7 @@ export function Composer({
   const voiceActive = !['idle', 'ended', 'failed'].includes(voiceState);
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (busy) return;
     const value = draft.trim();
     if (!value) return;
     onSend(value);
@@ -102,7 +103,7 @@ export function Composer({
           type="submit"
           className="icon-button icon-button--send"
           aria-label="Send message"
-          disabled={!draft.trim()}
+          disabled={busy || !draft.trim()}
         >
           <Send size={18} />
         </button>

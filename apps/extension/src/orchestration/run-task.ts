@@ -52,6 +52,12 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
   const controller = new AbortController();
   const gate = new CancellationGate();
   const generation = gate.generation;
+  const providerConversation = input.conversation.slice(-30).map(({ id, role, text, createdAt }) => ({
+    id,
+    role,
+    text,
+    createdAt,
+  }));
 
   const done = (async (): Promise<
     TaskState | { status: 'stopped' | 'failed'; reason?: string }
@@ -67,21 +73,19 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
       for (let stepCount = 0; stepCount < 12; stepCount += 1) {
         const observeId = `${generation}:observe:${stepCount}`;
         timeline({ id: observeId, label: 'Reading the current page', status: 'active' });
-        dependencies.onStatus?.('Reading this page…');
         const page = await dependencies.observe(controller.signal, currentTabId);
         gate.assertActive(generation);
         timeline({ id: observeId, label: 'Read the current page', status: 'completed' });
 
         const decideId = `${generation}:decide:${stepCount}`;
         timeline({ id: decideId, label: 'Choosing the next safe action', status: 'active' });
-        dependencies.onStatus?.('Working on it…');
         const requestId = crypto.randomUUID();
         const stepRequest = {
             requestId,
             taskId: task?.id ?? crypto.randomUUID(),
             cancellationGeneration: generation,
             utterance: input.utterance,
-            conversation: input.conversation,
+            conversation: providerConversation,
             page,
             task,
             ...(input.browserContext
