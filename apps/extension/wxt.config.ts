@@ -8,5 +8,6 @@ export default defineConfig({
     permissions: ['activeTab', 'scripting', 'sidePanel', 'storage'],
     optional_host_permissions: ['http://*/*', 'https://*/*'],
     action: { default_title: 'Open Nudge' },
+    side_panel: { default_path: 'sidepanel.html' },
   },
 });
