@@ -24,6 +24,12 @@ export const PageElementSchema = z
       'select',
       'option',
       'dialog',
+      'checkbox',
+      'gridcell',
+      'menuitem',
+      'tab',
+      'canvas',
+      'editable',
     ]),
     role: z.string().min(1).max(80).optional(),
     name: z.string().max(500).optional(),
@@ -35,6 +41,11 @@ export const PageElementSchema = z
     checked: z.boolean().optional(),
     selected: z.boolean().optional(),
     options: z.array(z.string().max(500)).max(200).optional(),
+    contentEditable: z.boolean().optional(),
+    expanded: z.boolean().optional(),
+    pressed: z.boolean().optional(),
+    scrollable: z.boolean().optional(),
+    formHasSensitiveField: z.boolean().optional(),
     visible: z.boolean(),
     disabled: z.boolean(),
     rect: z
@@ -68,6 +79,7 @@ export const PageSnapshotSchema = z
     elements: z.array(PageElementSchema).max(250),
     text: z.array(z.string().max(2_000)).max(200),
     truncated: z.boolean(),
+    mutationCounter: z.number().int().nonnegative().optional(),
     inaccessible: z
       .array(
         z.enum(['cross_origin_frame', 'closed_shadow_root', 'canvas', 'browser_page', 'unknown']),
