@@ -9,7 +9,7 @@ export interface RealtimeSessionMaterial {
 
 export interface RealtimeSessionIssuer {
   issue(
-    input: { apiKey: string; model: string; voice: string },
+    input: { apiKey: string; model: string; voice: string; transcribeModel?: string },
     signal: AbortSignal,
   ): Promise<RealtimeSessionMaterial>;
 }
@@ -34,7 +34,7 @@ const RequestSchema = z.object({ voice: z.enum(['marin', 'cedar']).default('mari
 
 export class OpenAIRealtimeSessionIssuer implements RealtimeSessionIssuer {
   async issue(
-    input: { apiKey: string; model: string; voice: string },
+    input: { apiKey: string; model: string; voice: string; transcribeModel?: string },
     signal: AbortSignal,
   ): Promise<RealtimeSessionMaterial> {
     const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
@@ -48,6 +48,7 @@ export class OpenAIRealtimeSessionIssuer implements RealtimeSessionIssuer {
           output_modalities: ['audio'],
           audio: {
             input: {
+              transcription: { model: input.transcribeModel ?? 'gpt-4o-mini-transcribe' },
               turn_detection: {
                 type: 'server_vad',
                 interrupt_response: true,
@@ -56,8 +57,9 @@ export class OpenAIRealtimeSessionIssuer implements RealtimeSessionIssuer {
             },
             output: { voice: input.voice },
           },
+          tools: [],
           instructions:
-            'Be concise and conversational. Browser actions are requests only; never claim an action completed until Nudge reports verified evidence.',
+            "You are the voice of Nudge, a browser assistant. Nudge's task engine hears the user's words directly and performs browser actions itself; you do not perform actions. Reply briefly (a few words such as 'On it' or a short clarification). Never claim an action happened unless Nudge reported it in a progress update, and never invent results.",
         },
       }),
     });
@@ -86,6 +88,7 @@ export function registerRealtimeSessionRoute(
     issuer: RealtimeSessionIssuer;
     getApiKey(): string;
     model: string;
+    transcribeModel?: string;
     timeoutMs: number;
   },
 ): void {
@@ -102,7 +105,7 @@ export function registerRealtimeSessionRoute(
       const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
       try {
         return await options.issuer.issue(
-          { apiKey, model: options.model, voice: input.data.voice },
+          { apiKey, model: options.model, voice: input.data.voice, ...(options.transcribeModel ? { transcribeModel: options.transcribeModel } : {}) },
           controller.signal,
         );
       } catch (error) {

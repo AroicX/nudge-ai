@@ -8,5 +8,7 @@ export interface VoiceTransport {
   interrupt(): void;
   setMuted(muted: boolean): void;
   sendText(text: string): void;
+  /** Speak a short progress update; must never let the voice model call tools. */
+  speakMilestone?(text: string): void;
   subscribe(listener: VoiceEventListener): () => void;
 }

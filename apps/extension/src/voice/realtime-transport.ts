@@ -125,6 +125,16 @@ export function createRealtimeVoiceTransport(
       });
       send({ type: 'response.create' });
     },
+    speakMilestone(text: string) {
+      if (channel?.readyState !== 'open') return;
+      send({
+        type: 'response.create',
+        response: {
+          tool_choice: 'none',
+          instructions: `In one short sentence, tell the user this progress update from Nudge without adding claims: ${text.slice(0, 500)}`,
+        },
+      });
+    },
     subscribe(listener: VoiceEventListener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

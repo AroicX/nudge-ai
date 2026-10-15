@@ -6,7 +6,10 @@ export interface PlannerProvider {
   capabilities?(): Promise<{ tools: boolean; vision: boolean }>;
 }
 
-export type PlannerFactory = (providerOverride?: 'openai' | 'ollama') => PlannerProvider;
+export type PlannerFactory = (
+  providerOverride?: 'openai' | 'ollama',
+  context?: { apiKey: string },
+) => PlannerProvider;
 
 /** Remove JSON nulls produced by strict-mode optional fields so Zod sees absent keys. */
 export function stripNulls(value: unknown): unknown {
@@ -36,6 +39,7 @@ export function withoutScreenshotBytes(request: PlannerRequest): PlannerRequest 
 
 export function withoutScreenshot(request: PlannerRequest): PlannerRequest {
   if (!request.observation?.screenshot) return request;
-  const { screenshot: _screenshot, ...observation } = request.observation;
+  const observation = { ...request.observation };
+  delete observation.screenshot;
   return { ...request, observation };
 }

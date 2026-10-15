@@ -97,6 +97,7 @@ export function createCdpExecutor(api: DebuggerApi, permissions: PermissionsApi)
           /already attached|another debugger/i.test(message)
             ? 'Chrome DevTools or another debugger is already attached to this tab. Close DevTools and try again.'
             : `Could not take control of this tab’s input: ${message}`,
+          { cause: error },
         );
       }
       attached = tabId;

@@ -485,3 +485,72 @@ header p {
   --color-muted-foreground: #687087;
   --color-card: #ffffff;
 }
+
+/* Task cards: previews, results, capability prompts */
+.task-card {
+  background: #ffffff;
+  border: 1px solid #dde1eb;
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+  margin: 0 12px 10px;
+  padding: 12px;
+}
+.task-card h2 {
+  font-size: 14px;
+  margin: 0;
+}
+.task-card h3 {
+  color: #5b6478;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  margin: 4px 0 2px;
+  text-transform: uppercase;
+}
+.task-card p,
+.task-card li,
+.task-card dd {
+  font-size: 12px;
+  margin: 0;
+}
+.task-card ul {
+  margin: 0;
+  padding-left: 16px;
+}
+.task-card dl {
+  display: grid;
+  gap: 2px 8px;
+  grid-template-columns: auto 1fr;
+  margin: 0;
+}
+.task-card dt {
+  color: #5b6478;
+  font-size: 12px;
+}
+.task-card__eyebrow {
+  color: #6254e7;
+  font-weight: 600;
+}
+.task-card__warning {
+  color: #b42318;
+  font-weight: 600;
+}
+.task-card__note {
+  color: #5b6478;
+}
+.task-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.task-card--preview {
+  border-color: #c9c3f7;
+}
+.task-card--partially_completed,
+.task-card--failed {
+  border-color: #fedf89;
+}
+.task-card--exports a {
+  color: #4036a7;
+  font-size: 12px;
+}

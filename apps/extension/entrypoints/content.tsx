@@ -1,4 +1,4 @@
-import { ContentRequestSchema, ExtensionMessageSchema } from '@nudge/contracts';
+import { ContentRequestSchema } from '@nudge/contracts';
 
 import { createPageAdapter } from '../src/content/page-adapter';
 import { mountLauncher } from '../src/launcher/Launcher';
@@ -20,17 +20,7 @@ export default defineContentScript({
 
     browser.runtime.onMessage.addListener((input: unknown) => {
       const request = ContentRequestSchema.safeParse(input);
-      if (request.success) return adapter.handle(request.data);
-      const parsed = ExtensionMessageSchema.safeParse(input);
-      if (!parsed.success) return undefined;
-      if (parsed.data.type === 'page.observe') return adapter.observe();
-      if (parsed.data.type === 'page.execute') {
-        return adapter.execute(parsed.data.action, {
-          active: true,
-          documentId: parsed.data.documentId,
-        });
-      }
-      return undefined;
+      return request.success ? adapter.handle(request.data) : undefined;
     });
 
     mountLauncher({

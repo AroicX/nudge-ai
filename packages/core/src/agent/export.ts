@@ -35,7 +35,12 @@ const xml = (value: string) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     // Strip characters that are illegal in XML 1.0.
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
+    .split('')
+    .filter((char) => {
+      const code = char.charCodeAt(0);
+      return code >= 0x20 || code === 0x09 || code === 0x0a || code === 0x0d;
+    })
+    .join('');
 
 function columnName(index: number): string {
   let name = '';

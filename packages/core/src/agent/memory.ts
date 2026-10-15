@@ -53,7 +53,7 @@ export function addConstraint(memory: TaskMemory, text: string, instructionVersi
 }
 
 export function setTabRole(memory: TaskMemory, tab: { tabId: number; title: string; url: string }, role: TabRole): TaskMemory {
-  let origin = '';
+  let origin: string;
   try {
     origin = new URL(tab.url).origin;
   } catch {

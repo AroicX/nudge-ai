@@ -89,4 +89,20 @@ describe('OpenAIRealtimeSessionIssuer', () => {
     expect(request.session.audio.output.voice).toBe('marin');
     vi.unstubAllGlobals();
   });
+
+  it('enables user transcription so speech reaches the task controller, and exposes no tools', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ value: 'ek_test', expires_at: 123 }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await new OpenAIRealtimeSessionIssuer().issue(
+      { apiKey: 'sk-test', model: 'gpt-realtime', voice: 'marin', transcribeModel: 'gpt-4o-mini-transcribe' },
+      new AbortController().signal,
+    );
+    const request = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(request.session.audio.input.transcription).toEqual({ model: 'gpt-4o-mini-transcribe' });
+    expect(request.session.tools ?? []).toEqual([]);
+    expect(request.session.instructions).toMatch(/never claim/i);
+    vi.unstubAllGlobals();
+  });
 });

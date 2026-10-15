@@ -127,6 +127,22 @@ describe('realtime transport', () => {
     expect(fixture.audio.pause).toHaveBeenCalled();
   });
 
+  it('speaks a milestone without allowing tool calls', async () => {
+    const fixture = setup();
+    await fixture.transport.connect({ clientSecret: 'ephemeral', model: 'gpt-realtime', expiresAt: 123 });
+    fixture.transport.speakMilestone?.('Added 4 jobs to the sheet');
+    const event = JSON.parse(fixture.sent.at(-1)!);
+    expect(event.type).toBe('response.create');
+    expect(event.response.tool_choice).toBe('none');
+    expect(event.response.instructions).toContain('Added 4 jobs to the sheet');
+  });
+
+  it('ignores milestones when the voice channel is closed', () => {
+    const fixture = setup();
+    expect(() => fixture.transport.speakMilestone?.('Done')).not.toThrow();
+    expect(fixture.sent).toHaveLength(0);
+  });
+
   it('mutes and disconnects idempotently', async () => {
     const fixture = setup();
     await fixture.transport.connect({

@@ -1,60 +1,18 @@
-import type { AgentStepRequest, AgentStepResponse } from '@nudge/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from './app';
-import type { DecisionProvider } from './providers/decision-provider';
+import type { PlannerProvider } from './planner/planner-provider';
+import { plannerRequest } from './planner/test-fixtures';
 
-const request: AgentStepRequest = {
-  requestId: 'req_1',
-  taskId: 'task_1',
-  cancellationGeneration: 0,
-  utterance: 'Find an iPhone 16',
-  conversation: [],
-  page: {
-    snapshotId: 'snap_1',
-    documentId: 'doc_1',
-    capturedAt: '2026-10-15T18:00:00.000Z',
-    url: 'https://shop.example.test/',
-    title: 'Shop',
-    viewport: { width: 1200, height: 800, scrollX: 0, scrollY: 0, pageHeight: 1200 },
-    elements: [],
-    text: ['Shop'],
-    truncated: false,
-    inaccessible: [],
-  },
-  task: null,
-};
-
-const response: AgentStepResponse = {
-  requestId: 'req_1',
-  task: {
-    id: 'task_1',
-    goal: 'Find an iPhone 16',
-    intent: 'search',
-    constraints: [{ key: 'model', value: 'iPhone 16', source: 'explicit' }],
-    successConditions: ['Matching products are visible'],
-    missingRequiredInformation: [],
-    risk: 'low',
-    status: 'active',
-    cancellationGeneration: 0,
-    verifiedActions: [],
-    boundTabId: 0,
-    boundDocumentId: 'doc_1',
-  },
-  decision: {
-    type: 'act',
-    taskId: 'task_1',
-    action: { type: 'read_page' },
-    expectedOutcome: 'Page read',
-  },
-};
+const request = plannerRequest();
+const response = { requestId: 'req_1', toolCall: { tool: 'list_tabs' } };
 
 const secret = 'pairing-secret-with-32-characters';
 const auth = { 'x-nudge-pairing-secret': secret };
-const providers: DecisionProvider[] = [];
+const providers: Array<Partial<PlannerProvider>> = [];
 
 function appWithProvider(
-  provider: DecisionProvider = { step: vi.fn().mockResolvedValue(response) },
+  provider: Partial<PlannerProvider> = { plan: vi.fn().mockResolvedValue(response) },
   overrides: Record<string, string | undefined> = {},
 ) {
   return buildApp({
@@ -64,18 +22,18 @@ function appWithProvider(
       NUDGE_PAIRING_SECRET: secret,
       ...overrides,
     },
-    providerFactory: (apiKey) => {
-      providers.push({ ...provider, apiKeyUsedForTest: apiKey } as DecisionProvider);
-      return provider;
+    plannerFactory: () => {
+      providers.push(provider);
+      return provider as PlannerProvider;
     },
     requestTimeoutMs: 30,
     rateLimitMax: 2,
-    bodyLimit: 2_000,
+    bodyLimit: 6_000,
   });
 }
 
-afterEach(async () => {
-  await Promise.all(providers.splice(0).map(async (provider) => provider.close?.()));
+afterEach(() => {
+  providers.splice(0);
 });
 
 describe('server boundaries', () => {
@@ -92,7 +50,7 @@ describe('server boundaries', () => {
     const app = appWithProvider();
     const result = await app.inject({
       method: 'POST',
-      url: '/api/agent/step',
+      url: '/api/agent/plan',
       headers: pairingSecret ? { 'x-nudge-pairing-secret': pairingSecret } : {},
       payload: request,
     });
@@ -105,9 +63,9 @@ describe('server boundaries', () => {
     const app = appWithProvider();
     const result = await app.inject({
       method: 'POST',
-      url: '/api/agent/step',
+      url: '/api/agent/plan',
       headers: auth,
-      payload: { ...request, utterance: 'x'.repeat(3_000) },
+      payload: { ...request, goal: 'x'.repeat(7_000) },
     });
     await app.close();
 
@@ -116,11 +74,11 @@ describe('server boundaries', () => {
 
   it('rate limits paired agent requests', async () => {
     const app = appWithProvider();
-    await app.inject({ method: 'POST', url: '/api/agent/step', headers: auth, payload: request });
-    await app.inject({ method: 'POST', url: '/api/agent/step', headers: auth, payload: request });
+    await app.inject({ method: 'POST', url: '/api/agent/plan', headers: auth, payload: request });
+    await app.inject({ method: 'POST', url: '/api/agent/plan', headers: auth, payload: request });
     const result = await app.inject({
       method: 'POST',
-      url: '/api/agent/step',
+      url: '/api/agent/plan',
       headers: auth,
       payload: request,
     });
@@ -130,32 +88,32 @@ describe('server boundaries', () => {
   });
 
   it('rejects malformed agent input before calling the provider', async () => {
-    const step = vi.fn();
-    const app = appWithProvider({ step });
+    const plan = vi.fn();
+    const app = appWithProvider({ plan });
     const result = await app.inject({
       method: 'POST',
-      url: '/api/agent/step',
+      url: '/api/agent/plan',
       headers: auth,
       payload: { requestId: 'req_bad' },
     });
     await app.close();
 
     expect(result.statusCode).toBe(400);
-    expect(step).not.toHaveBeenCalled();
+    expect(plan).not.toHaveBeenCalled();
   });
 
   it('times out a provider that does not return', async () => {
-    const app = appWithProvider({ step: () => new Promise(() => undefined) });
+    const app = appWithProvider({ plan: () => new Promise(() => undefined) });
     const result = await app.inject({
       method: 'POST',
-      url: '/api/agent/step',
+      url: '/api/agent/plan',
       headers: auth,
       payload: request,
     });
     await app.close();
 
     expect(result.statusCode).toBe(504);
-    expect(result.json()).toEqual({ error: 'Provider request timed out.' });
+    expect(result.json()).toEqual({ error: 'Planner request timed out.' });
   });
 });
 
@@ -168,9 +126,9 @@ describe('session provider key', () => {
         OPENAI_AGENT_MODEL: 'configured-model',
         NUDGE_PAIRING_SECRET: secret,
       },
-      providerFactory: (apiKey) => {
-        seenKeys.push(apiKey);
-        return { step: vi.fn().mockResolvedValue(response) };
+      plannerFactory: (_override, context) => {
+        seenKeys.push(context?.apiKey ?? '');
+        return { plan: vi.fn().mockResolvedValue(response) } as unknown as PlannerProvider;
       },
     });
 
@@ -182,7 +140,7 @@ describe('session provider key', () => {
     });
     const step = await app.inject({
       method: 'POST',
-      url: '/api/agent/step',
+      url: '/api/agent/plan',
       headers: auth,
       payload: request,
     });
@@ -211,14 +169,14 @@ describe('session provider key', () => {
         OPENAI_AGENT_MODEL: 'configured-model',
         NUDGE_PAIRING_SECRET: secret,
       },
-      providerFactory: (apiKey) => {
-        seenKeys.push(apiKey);
-        return { step: vi.fn().mockResolvedValue(response) };
+      plannerFactory: (_override, context) => {
+        seenKeys.push(context?.apiKey ?? '');
+        return { plan: vi.fn().mockResolvedValue(response) } as unknown as PlannerProvider;
       },
     });
     await second.inject({
       method: 'POST',
-      url: '/api/agent/step',
+      url: '/api/agent/plan',
       headers: auth,
       payload: request,
     });
