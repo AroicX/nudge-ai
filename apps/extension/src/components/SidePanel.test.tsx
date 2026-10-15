@@ -7,12 +7,14 @@ import { SidePanel } from './SidePanel';
 afterEach(cleanup);
 
 describe('SidePanel', () => {
-  it('sends text and keeps Stop available while work is active', () => {
+  it('uses a single-line composer and keeps Stop available while work is active', () => {
     const onSend = vi.fn();
     render(
       <SidePanel busy onSend={onSend} onStop={vi.fn()} onSaveKey={vi.fn()} onClearKey={vi.fn()} />,
     );
-    fireEvent.change(screen.getByLabelText('Tell Nudge what to do'), {
+    const input = screen.getByLabelText('Tell Nudge what to do');
+    expect(input.tagName).toBe('INPUT');
+    fireEvent.change(input, {
       target: { value: 'Find an iPhone 16' },
     });
     fireEvent.submit(screen.getByRole('form', { name: 'Message Nudge' }));
@@ -22,7 +24,7 @@ describe('SidePanel', () => {
     );
   });
 
-  it('can replace and clear a session-only provider key', () => {
+  it('opens settings from the header and can replace or clear a session-only provider key', () => {
     const onSaveKey = vi.fn();
     const onClearKey = vi.fn();
     render(
@@ -34,12 +36,58 @@ describe('SidePanel', () => {
         onClearKey={onClearKey}
       />,
     );
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
+    expect(screen.getByRole('dialog', { name: 'OpenAI settings' })).toBeTruthy();
     fireEvent.change(screen.getByLabelText('OpenAI API key'), {
       target: { value: 'sk-session-test' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Use this key' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
     fireEvent.click(screen.getByRole('button', { name: 'Use local default' }));
     expect(onSaveKey).toHaveBeenCalledWith('sk-session-test');
     expect(onClearKey).toHaveBeenCalledOnce();
+  });
+
+  it('puts voice in the composer and removes the action accordion', () => {
+    const onStartVoice = vi.fn();
+    render(
+      <SidePanel
+        busy={false}
+        actions={[{ id: 'action-1', ok: true, summary: 'Clicked result' }] as never}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+        onStartVoice={onStartVoice}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Start voice call' }));
+    expect(onStartVoice).toHaveBeenCalledOnce();
+    expect(screen.queryByText('Action history')).toBeNull();
+  });
+
+  it('copies each conversation message from the control beneath it', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    render(
+      <SidePanel
+        busy={false}
+        conversation={[
+          { id: 'turn-1', role: 'user', text: 'Find a phone', createdAt: '2026-10-15' },
+          { id: 'turn-2', role: 'assistant', text: 'I found one', createdAt: '2026-10-15' },
+        ]}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+      />,
+    );
+    const copyButtons = screen.getAllByRole('button', { name: 'Copy message' });
+    fireEvent.click(copyButtons[1]!);
+    expect(writeText).toHaveBeenCalledWith('I found one');
   });
 });

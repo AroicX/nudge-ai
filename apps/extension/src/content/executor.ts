@@ -1,6 +1,6 @@
 import type { ActionResult, BrowserAction } from '@nudge/contracts';
 
-import { ElementRegistry } from './element-registry';
+import type { ElementRegistry } from './element-registry';
 import { isVisible } from './snapshot';
 
 export interface ExecutionGuard {

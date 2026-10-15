@@ -1,7 +1,7 @@
 import type { PageElement, PageSnapshot } from '@nudge/contracts';
 
 import { accessibleName, associatedLabel } from './accessible-name';
-import { ElementRegistry } from './element-registry';
+import type { ElementRegistry } from './element-registry';
 
 const MAX_ELEMENTS = 250;
 const MAX_TEXT = 200;
@@ -13,6 +13,10 @@ export function isSensitiveElement(element: Element): boolean {
   const type = element.type.toLowerCase();
   const autocomplete = element.autocomplete.toLowerCase();
   return type === 'password' || autocomplete === 'one-time-code' || autocomplete.startsWith('cc-');
+}
+
+function isPasswordField(element: Element): element is HTMLInputElement {
+  return element instanceof HTMLInputElement && element.type.toLowerCase() === 'password';
 }
 
 export function isVisible(element: Element, window: Window): boolean {
@@ -55,7 +59,7 @@ function toPageElement(element: Element, id: string, document: Document): PageEl
     ...(element instanceof HTMLAnchorElement && element.href ? { href: element.href } : {}),
     ...(associatedLabel(element) ? { label: associatedLabel(element) } : {}),
     ...(element instanceof HTMLInputElement ? { inputType: element.type } : {}),
-    ...(field ? { value: field.value.slice(0, 2_000) } : {}),
+    ...(field && !isSensitiveElement(field) ? { value: field.value.slice(0, 2_000) } : {}),
     ...(element instanceof HTMLInputElement && ['checkbox', 'radio'].includes(element.type)
       ? { checked: element.checked }
       : {}),
@@ -87,7 +91,7 @@ export function captureSnapshot(
   const candidates = Array.from(document.querySelectorAll(SELECTOR)).filter(
     (element) =>
       !element.closest('[data-nudge-root]') &&
-      !isSensitiveElement(element) &&
+      (!isSensitiveElement(element) || isPasswordField(element)) &&
       isVisible(element, window),
   );
   const truncated = candidates.length > MAX_ELEMENTS;

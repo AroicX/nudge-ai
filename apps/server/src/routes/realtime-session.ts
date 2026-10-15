@@ -14,6 +14,22 @@ export interface RealtimeSessionIssuer {
   ): Promise<RealtimeSessionMaterial>;
 }
 
+class RealtimeSessionError extends Error {
+  constructor(
+    readonly publicMessage: string,
+    message = publicMessage,
+  ) {
+    super(message);
+  }
+}
+
+function messageForUpstreamStatus(status: number): string {
+  if (status === 401) return 'OpenAI rejected this API key. Add a valid API key in Settings.';
+  if (status === 403) return 'Realtime voice is not enabled for this OpenAI project.';
+  if (status === 429) return 'OpenAI voice quota is currently unavailable.';
+  return 'OpenAI could not start a Realtime voice session.';
+}
+
 const RequestSchema = z.object({ voice: z.enum(['marin', 'cedar']).default('marin') }).strict();
 
 export class OpenAIRealtimeSessionIssuer implements RealtimeSessionIssuer {
@@ -29,7 +45,6 @@ export class OpenAIRealtimeSessionIssuer implements RealtimeSessionIssuer {
         session: {
           type: 'realtime',
           model: input.model,
-          voice: input.voice,
           output_modalities: ['audio'],
           audio: {
             input: {
@@ -39,13 +54,19 @@ export class OpenAIRealtimeSessionIssuer implements RealtimeSessionIssuer {
                 create_response: true,
               },
             },
+            output: { voice: input.voice },
           },
           instructions:
             'Be concise and conversational. Browser actions are requests only; never claim an action completed until Nudge reports verified evidence.',
         },
       }),
     });
-    if (!response.ok) throw new Error(`Realtime session upstream failed (${response.status}).`);
+    if (!response.ok) {
+      throw new RealtimeSessionError(
+        messageForUpstreamStatus(response.status),
+        `Realtime session upstream failed (${response.status}).`,
+      );
+    }
     const body = (await response.json()) as {
       value?: string;
       expires_at?: number;
@@ -84,14 +105,17 @@ export function registerRealtimeSessionRoute(
           { apiKey, model: options.model, voice: input.data.voice },
           controller.signal,
         );
-      } catch {
-        return reply
-          .code(controller.signal.aborted ? 504 : 502)
-          .send({
-            error: controller.signal.aborted
-              ? 'Realtime session timed out.'
-              : 'Could not start realtime voice.',
-          });
+      } catch (error) {
+        const publicMessage =
+          error &&
+          typeof error === 'object' &&
+          'publicMessage' in error &&
+          typeof error.publicMessage === 'string'
+            ? error.publicMessage
+            : 'Could not start realtime voice.';
+        return reply.code(controller.signal.aborted ? 504 : 502).send({
+          error: controller.signal.aborted ? 'Realtime session timed out.' : publicMessage,
+        });
       } finally {
         clearTimeout(timeout);
       }
