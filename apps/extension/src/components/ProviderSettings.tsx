@@ -16,6 +16,7 @@ export function ProviderSettings({
   health,
   onSelection,
   onRefresh,
+  onClearHistory,
 }: {
   open: boolean;
   onClose(): void;
@@ -25,12 +26,17 @@ export function ProviderSettings({
   health?: ProviderHealth | undefined;
   onSelection(value: ProviderSelection): void;
   onRefresh(): void;
+  onClearHistory(): void;
 }) {
   const [key, setKey] = useState('');
+  const [viewProvider, setViewProvider] = useState(selection.provider);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
+    if (open) {
+      setViewProvider(selection.provider);
+      inputRef.current?.focus();
+    }
+  }, [open, selection.provider]);
   if (!open) return null;
 
   return (
@@ -59,16 +65,20 @@ export function ProviderSettings({
           </button>
         </div>
         <div className="provider-choice">
-          <button type="button" className={selection.provider === 'openai' ? '' : 'secondary'} onClick={() => onSelection({ provider: 'openai' })}>Use OpenAI</button>
+          <button type="button" className={viewProvider === 'openai' ? '' : 'secondary'} onClick={() => { setViewProvider('openai'); onSelection({ provider: 'openai' }); }}>Use OpenAI</button>
           <button
             type="button"
-            className={selection.provider === 'ollama' ? '' : 'secondary'}
-            onClick={() => onSelection({ provider: 'ollama', baseUrl: 'http://127.0.0.1:11434', model: health?.ollama.models[0] ?? 'qwen3' })}
+            className={viewProvider === 'ollama' ? '' : 'secondary'}
+            onClick={() => {
+              setViewProvider('ollama');
+              const model = health?.ollama.models[0];
+              if (model) onSelection({ provider: 'ollama', baseUrl: 'http://127.0.0.1:11434', model });
+            }}
           >
             Use Ollama
           </button>
         </div>
-        {selection.provider === 'openai' ? (
+        {viewProvider === 'openai' ? (
           <>
             <label htmlFor="provider-key">OpenAI API key</label>
             <input
@@ -84,14 +94,14 @@ export function ProviderSettings({
         ) : (
           <div className="ollama-settings">
             <label htmlFor="ollama-url">Ollama URL</label>
-            <input id="ollama-url" value={selection.baseUrl} readOnly />
+            <input id="ollama-url" value={selection.provider === 'ollama' ? selection.baseUrl : 'http://127.0.0.1:11434'} readOnly />
             {health?.ollama.models.length ? (
               <>
                 <label htmlFor="ollama-model">Model</label>
                 <select
                   id="ollama-model"
-                  value={selection.model}
-                  onChange={(event) => onSelection({ ...selection, model: event.target.value })}
+                  value={selection.provider === 'ollama' ? selection.model : health.ollama.models[0]}
+                  onChange={(event) => onSelection({ provider: 'ollama', baseUrl: 'http://127.0.0.1:11434', model: event.target.value })}
                 >
                   {health.ollama.models.map((model) => <option key={model}>{model}</option>)}
                 </select>
@@ -103,7 +113,7 @@ export function ProviderSettings({
           </div>
         )}
         <div className="settings-modal__actions">
-          {selection.provider === 'openai' ? <><button
+          {viewProvider === 'openai' ? <><button
             type="button"
             className="secondary"
             onClick={() => {
@@ -126,6 +136,7 @@ export function ProviderSettings({
             Use this key
           </button>
           </> : null}
+          <button type="button" className="secondary" onClick={onClearHistory}>Clear history</button>
         </div>
       </section>
     </div>

@@ -58,6 +58,7 @@ export function SidePanel({
   onStop,
   onSaveKey,
   onClearKey,
+  onClearHistory,
   voiceState = 'idle',
   voiceTranscript = '',
   voiceMuted = false,
@@ -185,6 +186,7 @@ export function SidePanel({
         health={providerHealth}
         onSelection={onProviderSelection}
         onRefresh={onRefreshProviders}
+        onClearHistory={() => void onClearHistory?.()}
       />
     </main>
   );

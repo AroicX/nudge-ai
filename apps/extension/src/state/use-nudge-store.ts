@@ -44,23 +44,25 @@ export const useNudgeStore = create<NudgeState>((set) => ({
   addTurn: (turn) =>
     set((state) => {
       const conversation = [...state.conversation, { ...turn, sources: 'sources' in turn ? turn.sources : [] }];
-      void historyStore.saveHistory({ version: 1, turns: conversation, timeline: [] });
+      void historyStore.saveHistory({ version: 1, turns: conversation, timeline: state.timeline });
       return { conversation };
     }),
   hydrateHistory: async () => {
     const history = await historyStore.loadHistory();
-    set({ conversation: history.turns });
+    set({ conversation: history.turns, timeline: history.timeline });
   },
   addAction: (action) => set((state) => ({ actions: [...state.actions, action] })),
   setTask: (task) => set({ task }),
   clearHistory: async () => {
     await historyStore.clearHistory();
-    set({ conversation: [], actions: [], task: null, status: 'Ready' });
+    set({ conversation: [], timeline: [], actions: [], task: null, status: 'Ready' });
   },
   setVoiceState: (voiceState) => set({ voiceState }),
   setVoiceTranscript: (voiceTranscript) => set({ voiceTranscript }),
   setTimelineStep: (step) =>
-    set((state) => ({
-      timeline: [...state.timeline.filter((item) => item.id !== step.id), step].slice(-100),
-    })),
+    set((state) => {
+      const timeline = [...state.timeline.filter((item) => item.id !== step.id), step].slice(-100);
+      void historyStore.saveHistory({ version: 1, turns: state.conversation, timeline });
+      return { timeline };
+    }),
 }));

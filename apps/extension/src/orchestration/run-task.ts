@@ -141,12 +141,22 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
           continue;
         }
 
+        const targetId =
+          response.decision.action.type === 'navigate_to_observed_url'
+            ? response.decision.action.sourceElementId
+            : 'elementId' in response.decision.action
+              ? response.decision.action.elementId
+              : undefined;
+        const target = targetId ? page.elements.find((element) => element.id === targetId) : undefined;
         const policy = evaluateAction(
           {
             task,
             tabId: currentTabId,
             documentId: page.documentId,
             observedUrls: page.elements.flatMap((element) => (element.href ? [element.href] : [])),
+            ...(target
+              ? { target: { ...(target.inputType ? { inputType: target.inputType } : {}) } }
+              : {}),
           },
           response.decision.action,
         );
@@ -184,6 +194,7 @@ export function runTask(input: RunTaskInput, dependencies: RunTaskDependencies):
 
   return {
     stop() {
+      dependencies.fallback?.cancelAll();
       gate.stop();
       controller.abort();
       dependencies.onStatus?.('Stopped');

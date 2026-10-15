@@ -25,4 +25,11 @@ describe('ProviderFallbackController', () => {
     expect(controller.approveFallback(expired.request.id, 'task-3')).toBe(false);
     await expect(expired.decision).resolves.toBe('declined');
   });
+
+  it('cancels every pending approval when a task is stopped', async () => {
+    const controller = new ProviderFallbackController();
+    const pending = controller.request('task-1', 'Unavailable');
+    controller.cancelAll();
+    await expect(pending.decision).resolves.toBe('declined');
+  });
 });

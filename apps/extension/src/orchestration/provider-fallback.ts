@@ -42,6 +42,18 @@ export class ProviderFallbackController {
     return this.settle(requestId, taskId, 'declined');
   }
 
+  cancelTask(taskId: string): void {
+    for (const [requestId, pending] of this.pending) {
+      if (pending.request.taskId === taskId) this.settle(requestId, taskId, 'declined');
+    }
+  }
+
+  cancelAll(): void {
+    for (const pending of [...this.pending.values()]) {
+      this.settle(pending.request.id, pending.request.taskId, 'declined');
+    }
+  }
+
   private settle(
     requestId: string,
     taskId: string,

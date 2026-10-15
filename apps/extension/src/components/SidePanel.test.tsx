@@ -176,4 +176,23 @@ describe('SidePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use OpenAI' }));
     expect(onProviderSelection).toHaveBeenCalledWith({ provider: 'openai' });
   });
+
+  it('does not invent or persist an Ollama model when discovery is empty', () => {
+    const onProviderSelection = vi.fn();
+    render(
+      <SidePanel
+        busy={false}
+        providerHealth={{ openai: { available: true }, ollama: { available: true, models: [] } }}
+        onProviderSelection={onProviderSelection}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use Ollama' }));
+    expect(screen.getByText(/No Ollama models found/i)).toBeTruthy();
+    expect(onProviderSelection).not.toHaveBeenCalled();
+  });
 });
