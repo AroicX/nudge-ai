@@ -10,10 +10,23 @@ import {
   ProviderCapabilitiesSchema,
   ProviderSelectionSchema,
   SourceReferenceSchema,
+  SensitiveTransferActionSchema,
   SwitchTabDecisionSchema,
   TaskStateSchema,
   TimelineStepSchema,
 } from './index';
+
+describe('SensitiveTransferActionSchema', () => {
+  it('stays outside provider-visible browser actions', () => {
+    const transfer = {
+      type: 'sensitive_transfer', taskId: 'task-1', destinationTabId: 1,
+      destinationDocumentId: 'doc-1', elementId: 'doc-1:1', cancellationGeneration: 0,
+      expectedLength: 6,
+    };
+    expect(SensitiveTransferActionSchema.safeParse(transfer).success).toBe(true);
+    expect(BrowserActionSchema.safeParse(transfer).success).toBe(false);
+  });
+});
 
 const page = {
   snapshotId: 'snap_1',

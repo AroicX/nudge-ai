@@ -3,6 +3,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createPageAdapter } from './page-adapter';
+import { executeOtpTransfer } from './executor';
+import { SecretEnvelope } from '../security/secret-envelope';
 
 function visible(element: Element): void {
   Object.defineProperty(element, 'getBoundingClientRect', {
@@ -126,5 +128,18 @@ describe('PageAdapter execution', () => {
 
     await expect(pending).resolves.toEqual({ changed: false, reason: 'timeout' });
     vi.useRealTimers();
+  });
+
+  it('pastes an OTP without clipboard access or form submission', async () => {
+    document.body.innerHTML = '<form><input autocomplete="one-time-code" maxlength="6"><button type="submit">Submit</button></form>';
+    const input = document.querySelector('input')!;
+    const submit = vi.fn((event: Event) => event.preventDefault());
+    document.querySelector('form')!.addEventListener('submit', submit);
+    const binding = { taskId: 'task-1', destinationTabId: 7, destinationDocumentId: 'doc-1', elementId: 'doc-1:1', cancellationGeneration: 0 };
+    const envelope = SecretEnvelope.create('482913', binding);
+    const result = await executeOtpTransfer(input, envelope, binding);
+    expect(result).toEqual({ ok: true, acceptedLength: 6, complete: true });
+    expect(input.value).toBe('482913');
+    expect(submit).not.toHaveBeenCalled();
   });
 });

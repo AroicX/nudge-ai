@@ -56,6 +56,17 @@ export const BrowserActionSchema = z.discriminatedUnion('type', [
   WaitActionSchema,
 ]);
 
+// Intentionally separate from BrowserActionSchema so providers can never emit secrets.
+export const SensitiveTransferActionSchema = z.object({
+  type: z.literal('sensitive_transfer'),
+  taskId: z.string().min(1).max(120),
+  destinationTabId: z.number().int().nonnegative(),
+  destinationDocumentId: z.string().min(1).max(120),
+  elementId: ElementIdSchema,
+  cancellationGeneration: z.number().int().nonnegative(),
+  expectedLength: z.number().int().min(4).max(8),
+}).strict();
+
 export const ActionResultSchema = z
   .object({
     ok: z.boolean(),
@@ -77,3 +88,4 @@ export const ActionResultSchema = z
 
 export type BrowserAction = z.infer<typeof BrowserActionSchema>;
 export type ActionResult = z.infer<typeof ActionResultSchema>;
+export type SensitiveTransferAction = z.infer<typeof SensitiveTransferActionSchema>;

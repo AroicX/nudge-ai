@@ -2,6 +2,7 @@ import type { ActionResult, BrowserAction } from '@nudge/contracts';
 
 import type { ElementRegistry } from './element-registry';
 import { isVisible } from './snapshot';
+import { SecretEnvelope, type SecretBinding } from '../security/secret-envelope';
 
 export interface ExecutionGuard {
   active: boolean;
@@ -29,6 +30,27 @@ function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: 
   const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
   if (!setter) throw new Error('Native value setter is unavailable.');
   setter.call(element, value);
+}
+
+export async function executeOtpTransfer(
+  target: HTMLInputElement,
+  envelope: SecretEnvelope,
+  binding: SecretBinding,
+): Promise<{ ok: boolean; acceptedLength: number; complete: boolean }> {
+  if (target.autocomplete !== 'one-time-code') {
+    envelope.destroy();
+    return { ok: false, acceptedLength: 0, complete: false };
+  }
+  const code = envelope.readOnce(binding);
+  setNativeValue(target, code);
+  target.dispatchEvent(new Event('input', { bubbles: true }));
+  target.dispatchEvent(new Event('change', { bubbles: true }));
+  const acceptedLength = target.value.length;
+  return {
+    ok: acceptedLength === code.length,
+    acceptedLength,
+    complete: acceptedLength === code.length && acceptedLength >= 4,
+  };
 }
 
 export async function executeAction(
