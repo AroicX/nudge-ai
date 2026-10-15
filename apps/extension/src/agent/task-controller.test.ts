@@ -317,4 +317,30 @@ describe('TaskController', () => {
     expect(planner.requests[2]!.lastResult).toMatchObject({ ok: false });
     expect(out.last()!.status).toBe('partially_completed');
   });
+
+  it('marks a record as saved once its value is typed into another tab and read back', async () => {
+    const sheet = {
+      url: 'https://sheet.test/', title: 'Sheet', documentId: 'docS',
+      elements: [element('docS', 1, 'gridcell', 'A2', { contentEditable: true, text: '' })],
+      text: [],
+      onExecute: (call: { tool: string; text?: string }, page: { elements: Array<{ text?: string }> }) => {
+        if (call.tool === 'type_text') page.elements[0]!.text = call.text ?? '';
+      },
+    };
+    const browser = new FakeBrowser().addTab(1, jobsPage()).addTab(2, sheet as never);
+    const planner = new FakePlanner(
+      [
+        { toolCall: { tool: 'record_items', records: [{ fields: [{ name: 'title', value: 'Senior Frontend Engineer' }], sourceUrl: 'https://jobs.test/a/1' }] } },
+        { toolCall: { tool: 'activate_tab', tabId: 2 } },
+        { toolCall: { tool: 'type_text', tabId: 2, elementId: 'docS:1', text: 'Senior Frontend Engineer', mode: 'replace' } },
+        { toolCall: { tool: 'finish', summary: 'Saved', evidence: ['A2'] } },
+      ],
+      { recordFields: ['title'], categories: ['read', 'navigate', 'fill', 'create_records'] },
+    );
+    const { controller, checkpoints } = make(browser, planner);
+    await controller.instruct('Collect jobs into the sheet', 'text', 1);
+    await controller.idle();
+    expect(planner.requests[3]!.notes.join(' ')).toMatch(/0 not yet written/);
+    expect(checkpoints.saves.at(-1)?.records[0]?.saved.destination).toMatchObject({ tabId: 2, rowHint: 'A2' });
+  });
 });

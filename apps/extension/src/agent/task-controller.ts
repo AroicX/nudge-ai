@@ -954,6 +954,7 @@ export class TaskController {
       ? checkExpectation(expectation, before, after.snapshot, result)
       : { verified: false, reason: 'Could not re-read the page.' };
     if (verification.verified || result.changed) this.#scheduler.noteProgress();
+    if (verification.verified && call.tool === 'type_text') this.#markSavedRecords(task, call.text, call.elementId);
     if (verification.verified && VISUAL_TOOLS.has(call.tool)) {
       task.memory = { ...task.memory, issues: task.memory.issues.filter((issue) => !/could not be read/i.test(issue)) };
     }
@@ -1111,6 +1112,22 @@ export class TaskController {
   }
 
   // ───────────────────────── helpers ─────────────────────────
+
+  /** A record counts as written once one of its values was typed into a destination and read back. */
+  #markSavedRecords(task: Task, text: string, elementId: string): void {
+    const value = text.trim().toLowerCase();
+    if (!value) return;
+    const target = task.snapshot?.elements.find((element) => element.id === elementId);
+    for (const record of task.records.unsaved()) {
+      const matches = Object.values(record.fields).some((field) => field !== 'unknown' && field.trim().toLowerCase() === value);
+      if (!matches || record.sourceUrl === task.snapshot?.url) continue;
+      task.records.markSaved(record.id, {
+        tabId: task.boundTabId,
+        rowHint: (target?.name ?? target?.label ?? elementId).slice(0, 200),
+        verifiedAt: new Date(this.deps.clock()).toISOString(),
+      });
+    }
+  }
 
   #noteRepeat(task: Task): void {
     task.repeatNotes += 1;

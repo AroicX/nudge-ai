@@ -59,12 +59,20 @@ describe('screenshot port', () => {
     expect(deps.sleep).toHaveBeenCalledWith(400);
   });
 
-  it('falls back to the debugger screenshot when capture fails and a session is attached', async () => {
+  it('falls back to a debugger screenshot of the same tab when captureVisibleTab is refused', async () => {
     const { deps } = screenshotDeps();
-    deps.captureVisibleTab.mockRejectedValueOnce(new Error('Missing host permission'));
-    const cdp = { attachedTabId: () => 4, captureScreenshot: vi.fn(async () => 'data:image/png;base64,BBBB') };
+    deps.captureVisibleTab.mockRejectedValueOnce(new Error("Either the '<all_urls>' or 'activeTab' permission is required."));
+    let attached: number | undefined;
+    const cdp = {
+      attachedTabId: () => attached,
+      attach: vi.fn(async (tabId: number) => {
+        attached = tabId;
+      }),
+      captureScreenshot: vi.fn(async () => 'data:image/png;base64,BBBB'),
+    };
     const port = createScreenshotPort({ ...deps, cdp });
     const result = await port.capture(4, snapshot);
+    expect(cdp.attach).toHaveBeenCalledWith(4);
     expect(result.dataUrl).toBe('data:image/png;base64,BBBB');
   });
 });

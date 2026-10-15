@@ -13,7 +13,7 @@ export interface ScreenshotDeps {
   clock(): number;
   sleep(ms: number): Promise<void>;
   id(): string;
-  cdp?: { attachedTabId(): number | undefined; captureScreenshot(): Promise<string> } | undefined;
+  cdp?: { attachedTabId(): number | undefined; attach(tabId: number): Promise<void>; captureScreenshot(): Promise<string> } | undefined;
 }
 
 export function createScreenshotPort(deps: ScreenshotDeps): ScreenshotPort {
@@ -30,7 +30,10 @@ export function createScreenshotPort(deps: ScreenshotDeps): ScreenshotPort {
       try {
         dataUrl = await deps.captureVisibleTab(await deps.windowOf(tabId));
       } catch (error) {
-        if (deps.cdp?.attachedTabId() !== tabId) throw error;
+        // captureVisibleTab needs <all_urls> or a user-invoked activeTab grant; fall back to the
+        // debugger session on the same tab (verified empirically in Chromium 1194).
+        if (!deps.cdp) throw error;
+        if (deps.cdp.attachedTabId() !== tabId) await deps.cdp.attach(tabId);
         dataUrl = await deps.cdp.captureScreenshot();
       }
       const size = await deps.measure(dataUrl);
