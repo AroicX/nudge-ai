@@ -1037,12 +1037,21 @@ export class TaskController {
       case 'type_at':
         return this.#executeVisual(task, call, documentId);
       default:
-        return this.deps.content.send(task.boundTabId, {
-          type: 'execute',
-          call: call as never,
-          documentId,
-          generation: this.#scheduler.generation,
-        });
+        try {
+          return await this.deps.content.send(task.boundTabId, {
+            type: 'execute',
+            call: call as never,
+            documentId,
+            generation: this.#scheduler.generation,
+          });
+        } catch (error) {
+          // The action ran and the page unloaded before replying (e.g. a link click). Verification
+          // re-observes the new page, so record it as a navigation instead of a failure.
+          if (error instanceof Error && /message channel closed|back\/forward cache|port closed/i.test(error.message)) {
+            return { ok: true, detail: 'The page navigated.', changed: true, documentId };
+          }
+          throw error;
+        }
     }
   }
 

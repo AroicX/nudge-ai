@@ -376,4 +376,28 @@ describe('TaskController', () => {
     expect(out.last()!.status).toBe('completed');
     expect(out.last()!.report!.verified.join(' ')).toMatch(/page=2/);
   });
+
+  it('treats a message channel closed by navigation as a navigation, not a failure', async () => {
+    const browser = new FakeBrowser().addTab(1, jobsPage());
+    const send = browser.send.bind(browser);
+    browser.send = async (tabId, request) => {
+      if (request.type === 'execute') {
+        const page = browser.pages.get(1)!;
+        browser.sent.push({ tabId, request });
+        page.url = 'https://jobs.test/list?page=2';
+        page.documentId = 'docNext';
+        throw new Error('A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received');
+      }
+      return send(tabId, request);
+    };
+    const planner = new FakePlanner([
+      { toolCall: { tool: 'click', tabId: 1, elementId: 'docA:2' }, expectation: { kind: 'url_changed' } },
+      { toolCall: { tool: 'finish', summary: 'Page 2', evidence: ['url'] } },
+    ]);
+    const { controller, out } = make(browser, planner);
+    await controller.instruct('Next page', 'text', 1);
+    await controller.idle();
+    expect(out.last()!.status).toBe('completed');
+    expect(out.last()!.report!.verified.join(' ')).toMatch(/page=2/);
+  });
 });

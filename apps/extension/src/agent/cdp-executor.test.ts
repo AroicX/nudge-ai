@@ -92,4 +92,17 @@ describe('CDP executor', () => {
     expect(types.at(-1)).toBe('mouseReleased');
     expect(api.commands.filter((command) => command.params.type === 'mouseMoved' && command.params.buttons === 1).length).toBeGreaterThanOrEqual(10);
   });
+
+  it('fails a hung command with a timeout instead of stalling the task', async () => {
+    vi.useFakeTimers();
+    const api = fakeDebugger();
+    api.sendCommand.mockImplementation(() => new Promise(() => undefined));
+    const cdp = createCdpExecutor(api, granted, { commandTimeoutMs: 1_000 });
+    await cdp.attach(4);
+    const pending = cdp.captureScreenshot();
+    const assertion = expect(pending).rejects.toThrow(/Page.captureScreenshot timed out/);
+    await vi.advanceTimersByTimeAsync(1_001);
+    await assertion;
+    vi.useRealTimers();
+  });
 });

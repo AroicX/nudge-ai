@@ -58,7 +58,12 @@ function describeKey(key: string, shift: boolean) {
   return { key: produced, code, vk, text: produced };
 }
 
-export function createCdpExecutor(api: DebuggerApi, permissions: PermissionsApi): CdpPort & { send(method: string, params?: Record<string, unknown>): Promise<unknown> } {
+export function createCdpExecutor(
+  api: DebuggerApi,
+  permissions: PermissionsApi,
+  options: { commandTimeoutMs?: number } = {},
+): CdpPort & { send(method: string, params?: Record<string, unknown>): Promise<unknown> } {
+  const timeoutMs = options.commandTimeoutMs ?? 10_000;
   let attached: number | undefined;
   const lostListeners = new Set<(reason: string) => void>();
 
@@ -71,7 +76,17 @@ export function createCdpExecutor(api: DebuggerApi, permissions: PermissionsApi)
   const send = async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
     if (!(ALLOWED_CDP_METHODS as readonly string[]).includes(method)) throw new Error(`CDP method ${method} is not allowed.`);
     if (attached === undefined) throw new Error('Trusted input is not attached to a tab.');
-    return api.sendCommand({ tabId: attached }, method as AllowedMethod, params);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        api.sendCommand({ tabId: attached }, method as AllowedMethod, params),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`${method} timed out after ${timeoutMs} ms.`)), timeoutMs);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
   const mouse = (type: string, x: number, y: number, extra: Record<string, unknown> = {}) =>
