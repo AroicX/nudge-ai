@@ -30,6 +30,12 @@ export const VoiceToolResultSchema = z
   })
   .strict();
 
+const VoiceProviderIdentitySchema = {
+  eventId: z.string().min(1).max(200).optional(),
+  itemId: z.string().min(1).max(200).optional(),
+  responseId: z.string().min(1).max(200).optional(),
+};
+
 export const VoiceEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('state'), state: VoiceSessionStateSchema }).strict(),
   z
@@ -38,10 +44,30 @@ export const VoiceEventSchema = z.discriminatedUnion('type', [
       role: z.enum(['user', 'assistant']),
       text: z.string().max(10_000),
       final: z.boolean(),
+      ...VoiceProviderIdentitySchema,
     })
     .strict(),
-  z.object({ type: z.literal('speech.started'), role: z.enum(['user', 'assistant']) }).strict(),
-  z.object({ type: z.literal('speech.stopped'), role: z.enum(['user', 'assistant']) }).strict(),
+  z
+    .object({
+      type: z.literal('speech.started'),
+      role: z.enum(['user', 'assistant']),
+      ...VoiceProviderIdentitySchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('speech.stopped'),
+      role: z.enum(['user', 'assistant']),
+      ...VoiceProviderIdentitySchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('speech.interrupted'),
+      role: z.literal('assistant'),
+      ...VoiceProviderIdentitySchema,
+    })
+    .strict(),
   z
     .object({
       type: z.literal('function.intent'),
