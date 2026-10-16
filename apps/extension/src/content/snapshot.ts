@@ -18,8 +18,12 @@ export function isSensitiveElement(element: Element): boolean {
   return type === 'password' || autocomplete === 'one-time-code' || autocomplete.startsWith('cc-');
 }
 
-function isPasswordField(element: Element): element is HTMLInputElement {
-  return element instanceof HTMLInputElement && element.type.toLowerCase() === 'password';
+/** Password and one-time-code fields are listed as targets (never with their value); card fields are omitted. */
+function isTargetableSensitiveField(element: Element): element is HTMLInputElement {
+  return (
+    element instanceof HTMLInputElement &&
+    (element.type.toLowerCase() === 'password' || element.autocomplete.toLowerCase() === 'one-time-code')
+  );
 }
 
 export function isVisible(element: Element, window: Window): boolean {
@@ -142,7 +146,7 @@ export function captureSnapshot(
   const visibleCandidates = Array.from(document.querySelectorAll(SELECTOR)).filter(
     (element) =>
       !element.closest('[data-nudge-root]') &&
-      (!isSensitiveElement(element) || isPasswordField(element)) &&
+      (!isSensitiveElement(element) || isTargetableSensitiveField(element)) &&
       isVisible(element, window),
   );
   const truncated = visibleCandidates.length > MAX_ELEMENTS;

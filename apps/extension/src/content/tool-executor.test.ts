@@ -130,6 +130,14 @@ describe('snapshot', () => {
     expect(snapshot.elements.some((element) => element.kind === 'canvas')).toBe(true);
   });
 
+  it('exposes one-time-code fields as targets without their value', async () => {
+    const { snapshot } = await setup('<label>One-time code <input autocomplete="one-time-code" value="111222" /></label>');
+    const field = snapshot.elements.find((element) => element.name === 'One-time code');
+    expect(field).toBeDefined();
+    expect(field!.value).toBeUndefined();
+    expect(JSON.stringify(snapshot)).not.toContain('111222');
+  });
+
   it('flags fields inside forms with sensitive inputs', async () => {
     const { snapshot } = await setup('<form><input aria-label="Card holder" /><input type="password" aria-label="Password" /><button>Pay</button></form>');
     expect(snapshot.elements.find((element) => element.name === 'Pay')?.formHasSensitiveField).toBe(true);
