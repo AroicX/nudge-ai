@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Nudge mark</title>
+  <desc id="desc">A colorful continuous n gesture rising into a clicked arrow on a midnight rounded square.</desc>
+  <defs>
+    <linearGradient id="gesture" x1="24" y1="92" x2="104" y2="34" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#623cff"/>
+      <stop offset="0.52" stop-color="#f03b92"/>
+      <stop offset="1" stop-color="#ff8a25"/>
+    </linearGradient>
+    <radialGradient id="surface" cx="0" cy="0" r="1" gradientTransform="translate(68 58) rotate(90) scale(70)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#151d43"/>
+      <stop offset="1" stop-color="#080d25"/>
+    </radialGradient>
+    <filter id="glow" x="8" y="13" width="112" height="106" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="2.5"/>
+    </filter>
+  </defs>
+  <rect x="6" y="6" width="116" height="116" rx="30" fill="url(#surface)"/>
+  <path d="M29 91V63C29 49 38 40 51 40C64 40 72 49 72 63V76C72 87 79 94 89 94C99 94 105 87 105 76V54" fill="none" stroke="#ef3d97" stroke-opacity="0.24" stroke-width="19" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <path d="M29 91V63C29 49 38 40 51 40C64 40 72 49 72 63V76C72 87 79 94 89 94C99 94 105 87 105 76V54" fill="none" stroke="url(#gesture)" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M105 35L91 53H119L105 35Z" fill="url(#gesture)" stroke="url(#gesture)" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M105 25V16M115 29L121 22M95 29L89 22" fill="none" stroke="url(#gesture)" stroke-width="5" stroke-linecap="round"/>
+</svg>

@@ -8,3 +8,4 @@ pnpm-lock.yaml
 PRD.md
 Tools.md
 docs/superpowers/
+.output-e2e/

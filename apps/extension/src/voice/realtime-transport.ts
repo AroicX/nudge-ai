@@ -1,4 +1,4 @@
-import type { VoiceEvent, VoiceSessionConfig } from '@nudge/contracts';
+import type { VoiceEvent, VoiceSessionConfig, VoiceToolResult } from '@nudge/contracts';
 import type { VoiceEventListener, VoiceTransport } from '@nudge/core';
 
 import { parseRealtimeEvent } from './realtime-events';
@@ -54,19 +54,36 @@ export function createRealtimeVoiceTransport(
       peer = localPeer;
       audio = dependencies.createAudio();
       audio.autoplay = true;
+      audio.setAttribute('playsinline', '');
+      const playRemote = () => {
+        const remoteAudio = audio;
+        if (!remoteAudio || peer !== localPeer) return;
+        void remoteAudio.play().catch(() => {
+          emit({ type: 'state', state: 'failed' });
+          emit({
+            type: 'error',
+            message: 'Chrome blocked AI voice playback. Start the voice call again.',
+          });
+        });
+      };
       localPeer.ontrack = (event) => {
-        if (audio) audio.srcObject = event.streams[0] ?? null;
+        const remoteAudio = audio;
+        if (!remoteAudio || peer !== localPeer) return;
+        remoteAudio.srcObject = event.streams[0] ?? null;
+        playRemote();
       };
       localStream.getTracks().forEach((track) => localPeer.addTrack(track, localStream));
       channel = localPeer.createDataChannel('oai-events');
       channel.addEventListener('message', (raw) => {
         if (!('data' in raw)) return;
         try {
-          const events = parseRealtimeEvent(JSON.parse(raw.data));
+          const providerEvent = JSON.parse(raw.data) as { type?: unknown };
+          const events = parseRealtimeEvent(providerEvent);
           if (events.some((event) => event.type === 'speech.started' && event.role === 'user')) {
             audio?.pause();
             if (audio) audio.currentTime = 0;
           }
+          if (providerEvent.type === 'output_audio_buffer.started') playRemote();
           events.forEach(emit);
         } catch {
           emit({ type: 'error', message: 'Realtime event was invalid.' });
@@ -116,6 +133,27 @@ export function createRealtimeVoiceTransport(
       });
       send({ type: 'response.create' });
     },
+    sendToolResult(callId: string, result: VoiceToolResult) {
+      send({
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: callId,
+          output: JSON.stringify(result),
+        },
+      });
+      send({ type: 'response.create' });
+    },
+    speakMilestone(text: string) {
+      if (channel?.readyState !== 'open') return;
+      send({
+        type: 'response.create',
+        response: {
+          tool_choice: 'none',
+          instructions: `In one short sentence, tell the user this verified Nudge progress update without adding claims: ${text.slice(0, 500)}`,
+        },
+      });
+    },
     subscribe(listener: VoiceEventListener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -127,7 +165,12 @@ export function browserRealtimeDependencies(): RealtimeTransportDependencies {
   return {
     getUserMedia: () =>
       navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
       }),
     createPeer: () => new RTCPeerConnection(),
     createAudio: () =>

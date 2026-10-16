@@ -3,6 +3,25 @@ import { describe, expect, it } from 'vitest';
 import config from './wxt.config';
 
 describe('extension host permissions', () => {
+  it('registers the complete Nudge icon set', () => {
+    expect(config.manifest).toMatchObject({
+      icons: {
+        16: 'icons/nudge-16.png',
+        32: 'icons/nudge-32.png',
+        48: 'icons/nudge-48.png',
+        128: 'icons/nudge-128.png',
+      },
+      action: {
+        default_title: 'Open Nudge',
+        default_icon: {
+          16: 'icons/nudge-16.png',
+          32: 'icons/nudge-32.png',
+          48: 'icons/nudge-48.png',
+        },
+      },
+    });
+  });
+
   it('requires access to every HTTP and HTTPS site', () => {
     expect(config.manifest).toMatchObject({
       host_permissions: ['http://*/*', 'https://*/*'],
@@ -20,5 +39,12 @@ describe('extension host permissions', () => {
     expect(viteConfig?.plugins).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'nudge-require-pairing-secret' })]),
     );
+  });
+});
+
+describe('debugger permission', () => {
+  it('is a required permission because Chrome does not allow it to be optional', () => {
+    expect((config.manifest as { permissions: string[] }).permissions).toContain('debugger');
+    expect(config.manifest).not.toHaveProperty('optional_permissions');
   });
 });

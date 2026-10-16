@@ -9,15 +9,27 @@ interface BrowserTab {
   favIconUrl?: string | undefined;
   discarded?: boolean | undefined;
   incognito?: boolean | undefined;
+  status?: string | undefined;
 }
+
+type UpdatedListener = (tabId: number, info: { url?: string | undefined; status?: string | undefined }) => void;
 
 interface TabsApi {
   query(queryInfo: Record<string, unknown>): Promise<BrowserTab[]>;
-  update(tabId: number, updateProperties: { active: boolean }): Promise<BrowserTab | undefined>;
-  create(createProperties: { url: string }): Promise<BrowserTab>;
+  update(tabId: number, updateProperties: { active?: boolean; url?: string }): Promise<BrowserTab | undefined>;
+  create(createProperties: { url: string; active?: boolean }): Promise<BrowserTab>;
+  get?(tabId: number): Promise<BrowserTab | undefined>;
+  remove?(tabId: number): Promise<void> | void;
+  goBack?(tabId: number): Promise<void>;
+  goForward?(tabId: number): Promise<void>;
+  reload?(tabId: number): Promise<void>;
   onRemoved: {
     addListener(listener: (tabId: number) => void): void;
     removeListener(listener: (tabId: number) => void): void;
+  };
+  onUpdated?: {
+    addListener(listener: UpdatedListener): void;
+    removeListener(listener: UpdatedListener): void;
   };
 }
 
@@ -107,6 +119,80 @@ export class TabRegistry {
     if (!reference) throw new Error('Chrome did not return a usable tab.');
     this.known.set(reference.tabId, reference);
     return reference;
+  }
+
+  async #requireKnown(tabId: number): Promise<TabReference> {
+    if (this.removed.has(tabId)) throw new Error('That browser tab is not available.');
+    const reference = this.known.get(tabId) ?? (await this.list()).find((tab) => tab.tabId === tabId);
+    if (!reference) throw new Error('That browser tab is not available.');
+    return reference;
+  }
+
+  async navigate(tabId: number, url: string): Promise<void> {
+    const safeUrl = safeHttpUrl(url).href;
+    await this.#requireKnown(tabId);
+    await this.tabs.update(tabId, { url: safeUrl });
+    await this.waitForComplete(tabId, 15_000);
+  }
+
+  async goBack(tabId: number): Promise<void> {
+    await this.#requireKnown(tabId);
+    await this.tabs.goBack?.(tabId);
+    await this.waitForComplete(tabId, 15_000);
+  }
+
+  async goForward(tabId: number): Promise<void> {
+    await this.#requireKnown(tabId);
+    await this.tabs.goForward?.(tabId);
+    await this.waitForComplete(tabId, 15_000);
+  }
+
+  async reload(tabId: number): Promise<void> {
+    await this.#requireKnown(tabId);
+    await this.tabs.reload?.(tabId);
+    await this.waitForComplete(tabId, 15_000);
+  }
+
+  async close(tabId: number): Promise<void> {
+    await this.#requireKnown(tabId);
+    if (!this.tabs.remove) throw new Error('Closing tabs is not supported here.');
+    await this.tabs.remove(tabId);
+    this.removedListener(tabId);
+  }
+
+  /** Resolve once the tab reports status "complete" (or the timeout passes). */
+  waitForComplete(tabId: number, timeoutMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.tabs.onUpdated?.removeListener(listener);
+        resolve();
+      };
+      const listener: UpdatedListener = (id, info) => {
+        if (id === tabId && info.status === 'complete') done();
+      };
+      const timer = setTimeout(done, timeoutMs);
+      this.tabs.onUpdated?.addListener(listener);
+      // Small grace period so a navigation that has not started yet is not mistaken for complete.
+      setTimeout(() => {
+        void this.tabs.get?.(tabId).then((tab) => {
+          if (!tab || tab.status === 'complete') done();
+        }, done);
+      }, 50);
+    });
+  }
+
+  onRemoved(listener: (tabId: number) => void): () => void {
+    this.tabs.onRemoved.addListener(listener);
+    return () => this.tabs.onRemoved.removeListener(listener);
+  }
+
+  onUpdated(listener: UpdatedListener): () => void {
+    this.tabs.onUpdated?.addListener(listener);
+    return () => this.tabs.onUpdated?.removeListener(listener);
   }
 
   async resolveSource(

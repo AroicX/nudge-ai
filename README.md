@@ -1,6 +1,8 @@
 # Nudge
 
-Nudge is a Chrome extension that operates the current website through text and live voice while validating each browser action and verifying its result.
+Nudge is a Chrome extension that operates your browser on your behalf through text and live voice. You state an outcome; Nudge observes the page, keeps a short plan, performs validated browser actions, verifies progress, and adapts until the task is done — or tells you precisely what remains.
+
+See [docs/browser-agent.md](docs/browser-agent.md) for the architecture, tool vocabulary, permissions and what is (and is not) verified.
 
 ## Local setup
 
@@ -8,7 +10,9 @@ Nudge is a Chrome extension that operates the current website through text and l
 2. Run `pnpm install`, then start the backend with `pnpm dev:server`.
 3. Build the extension with `pnpm --filter @nudge/extension build`.
 4. In Chrome, open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select `apps/extension/.output/chrome-mv3`.
-5. Open a normal HTTP(S) page and click the Nudge toolbar icon. Nudge requests browser-wide HTTP(S) and tab access at installation so cross-tab tasks do not repeatedly interrupt you with permission prompts.
+5. Open a normal HTTP(S) page and click the Nudge toolbar icon. Nudge requests browser-wide HTTP(S) and tab access at installation so cross-tab tasks do not repeatedly interrupt you with permission prompts. It also requests the `debugger` permission (Chrome does not allow it to be optional), used only to send real mouse and keyboard input to the task's own tab when a page needs it (for example a canvas editor) and for screenshots. While it is attached Chrome shows a “Nudge started debugging this browser” bar; Nudge detaches when the step is done.
+
+Tasks run in the extension's background service worker, so closing or reloading the side panel does not stop them. Reopening the panel shows the current task.
 
 The backend listens only on `127.0.0.1:4317`. The environment OpenAI key is the default. A user can replace it from **Provider settings**; the replacement stays only in backend memory and is cleared when that process restarts.
 
@@ -35,6 +39,7 @@ Run `pnpm dev:fixtures`, then open `http://127.0.0.1:4173`. The fixture supports
 - `pnpm test` runs contracts, policy, backend, DOM adapter, launcher, orchestration, and component tests.
 - `pnpm typecheck` checks every workspace package.
 - `pnpm build` produces the Chrome Manifest V3 bundle and fixture build.
-- `pnpm test:browser` exercises the shop, mail, verification, manifest, and onboarding fixtures in Chrome.
+- `pnpm test:browser` exercises the shop, mail, verification, manifest, and onboarding fixtures in Chrome (set `NUDGE_CHROMIUM_PATH` to use a specific Chromium build).
+- `pnpm test:accept` builds an e2e copy of the extension (`apps/extension/.output-e2e`), starts the fixtures and a backend with the **test-only scripted planner** (`NUDGE_PLANNER=scripted`, refused when `NODE_ENV=production`), loads the real extension in Chromium, and runs the acceptance flows. No OpenAI calls are made.
 
 Local DOM snapshots and ordinary mutations are designed to complete inside 150 ms on a responsive page. Live OpenAI latency depends on network and model response time; live-provider latency has not yet been benchmarked in this repository.

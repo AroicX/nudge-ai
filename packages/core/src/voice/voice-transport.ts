@@ -1,4 +1,4 @@
-import type { VoiceEvent, VoiceSessionConfig } from '@nudge/contracts';
+import type { VoiceEvent, VoiceSessionConfig, VoiceToolResult } from '@nudge/contracts';
 
 export type VoiceEventListener = (event: VoiceEvent) => void;
 
@@ -8,5 +8,8 @@ export interface VoiceTransport {
   interrupt(): void;
   setMuted(muted: boolean): void;
   sendText(text: string): void;
+  sendToolResult(callId: string, result: VoiceToolResult): void;
+  /** Speak a short progress update without giving the voice model tool access. */
+  speakMilestone?(text: string): void;
   subscribe(listener: VoiceEventListener): () => void;
 }

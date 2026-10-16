@@ -14,7 +14,56 @@ import {
   SwitchTabDecisionSchema,
   TaskStateSchema,
   TimelineStepSchema,
+  VoiceEventSchema,
+  VoiceToolResultSchema,
 } from './index';
+
+describe('realtime voice contracts', () => {
+  it('accepts a strict run_browser_task intent', () => {
+    expect(
+      VoiceEventSchema.parse({
+        type: 'function.intent',
+        name: 'run_browser_task',
+        callId: 'call_123',
+        arguments: { goal: 'Find the cheapest black kettle' },
+      }),
+    ).toEqual({
+      type: 'function.intent',
+      name: 'run_browser_task',
+      callId: 'call_123',
+      arguments: { goal: 'Find the cheapest black kettle' },
+    });
+    expect(
+      VoiceEventSchema.safeParse({
+        type: 'function.intent',
+        name: 'run_browser_task',
+        callId: '',
+        arguments: { goal: 'Find a kettle' },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects malformed tool results', () => {
+    const source = {
+      tabId: 7,
+      windowId: 1,
+      active: true,
+      url: 'https://shop.example.test/kettles',
+      title: 'Kettles',
+      domain: 'shop.example.test',
+      discarded: false,
+      lastSeenAt: '2026-10-15T18:00:00.000Z',
+    };
+    expect(
+      VoiceToolResultSchema.parse({ ok: true, message: 'Found three kettles.', sources: [source] }),
+    ).toEqual({ ok: true, message: 'Found three kettles.', sources: [source] });
+    expect(
+      VoiceToolResultSchema.safeParse({ ok: true, message: 'Done', internalReasoning: 'secret' })
+        .success,
+    ).toBe(false);
+    expect(VoiceToolResultSchema.safeParse({ ok: 'yes', message: 'Done' }).success).toBe(false);
+  });
+});
 
 describe('SensitiveTransferActionSchema', () => {
   it('stays outside provider-visible browser actions', () => {

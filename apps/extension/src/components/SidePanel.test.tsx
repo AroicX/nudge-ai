@@ -7,24 +7,87 @@ import { SidePanel } from './SidePanel';
 afterEach(cleanup);
 
 describe('SidePanel', () => {
-  it('uses a single-line composer and prevents duplicate sends while work is active', () => {
-    const onSend = vi.fn();
+  it('clears the visible conversation from the header', () => {
+    const onClearHistory = vi.fn();
     render(
-      <SidePanel busy onSend={onSend} onStop={vi.fn()} onSaveKey={vi.fn()} onClearKey={vi.fn()} />,
+      <SidePanel
+        busy={false}
+        conversation={[
+          { id: 'turn-1', role: 'user', text: 'Find a kettle', createdAt: '2026-10-15' },
+        ]}
+        onClearHistory={onClearHistory}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear chat' }));
+
+    expect(onClearHistory).toHaveBeenCalledOnce();
+  });
+
+  it('prevents clearing chat while an action is running', () => {
+    render(
+      <SidePanel
+        busy
+        conversation={[
+          { id: 'turn-1', role: 'user', text: 'Find a kettle', createdAt: '2026-10-15' },
+        ]}
+        onClearHistory={vi.fn()}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+      />,
+    );
+
+    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it('embeds action progress after the latest user request and before its response', () => {
+    render(
+      <SidePanel
+        busy={false}
+        conversation={[
+          { id: 'turn-1', role: 'user', text: 'Find a kettle', createdAt: '2026-10-15' },
+          { id: 'turn-2', role: 'assistant', text: 'I found one', createdAt: '2026-10-15' },
+        ]}
+        timeline={[{ id: 'step-1', label: 'Searched Jumia', status: 'completed' }]}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+      />,
+    );
+
+    const userMessage = screen.getByText('Find a kettle').closest('article')!;
+    const progress = screen.getByRole('region', { name: 'Action progress' });
+    const assistantMessage = screen.getByText('I found one').closest('article')!;
+
+    expect(userMessage.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(progress.compareDocumentPosition(assistantMessage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('uses a single-line composer and sends typed text as a task update while work is active', () => {
+    const onSend = vi.fn();
+    const onStop = vi.fn();
+    render(
+      <SidePanel busy onSend={onSend} onStop={onStop} onSaveKey={vi.fn()} onClearKey={vi.fn()} />,
     );
     const input = screen.getByLabelText('Tell Nudge what to do');
     expect(input.tagName).toBe('INPUT');
     fireEvent.change(input, {
-      target: { value: 'Find an iPhone 16' },
+      target: { value: 'Only black ones' },
     });
     fireEvent.submit(screen.getByRole('form', { name: 'Message Nudge' }));
-    expect(onSend).not.toHaveBeenCalled();
-    expect((screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
-    expect((screen.getByRole('button', { name: 'Stop' }) as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect(onSend).toHaveBeenCalledWith('Only black ones');
+    expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(onStop).toHaveBeenCalledOnce();
   });
 
   it('opens settings from the header and can replace or clear a session-only provider key', () => {
@@ -68,6 +131,31 @@ describe('SidePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start voice call' }));
     expect(onStartVoice).toHaveBeenCalledOnce();
     expect(screen.queryByText('Action history')).toBeNull();
+  });
+
+  it('floats a bare cloud orb above the composer and ends voice from a red close button', () => {
+    const onEndVoice = vi.fn();
+    render(
+      <SidePanel
+        busy={false}
+        voiceState="listening"
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+        onEndVoice={onEndVoice}
+      />,
+    );
+
+    const composer = screen.getByRole('form', { name: 'Message Nudge' });
+    const orb = document.querySelector('[data-orb-state="listening"]')!.closest('.voice-orb')!;
+    const close = screen.getByRole('button', { name: 'End voice call' });
+    expect(orb.classList.contains('composer__voice-orb')).toBe(true);
+    expect(composer.contains(orb)).toBe(true);
+    expect(orb.closest('button')).toBeNull();
+    expect(close.classList.contains('icon-button--danger')).toBe(true);
+    fireEvent.click(close);
+    expect(onEndVoice).toHaveBeenCalledOnce();
   });
 
   it('puts completed dictation in the composer without sending it', async () => {

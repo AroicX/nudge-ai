@@ -5,6 +5,7 @@ import {
   type PersistedTurn,
   type SourceReference,
 } from '@nudge/contracts';
+import { redactText } from '@nudge/core';
 
 const STORAGE_KEY = 'nudgeConversationV1';
 const MAX_BYTES = 1024 * 1024;
@@ -41,7 +42,7 @@ function sanitizeTurn(turn: PersistedTurn): PersistedTurn {
   return {
     id: turn.id,
     role: turn.role,
-    text: turn.text,
+    text: redactText(turn.text),
     createdAt: turn.createdAt,
     ...(turn.provider ? { provider: turn.provider } : {}),
     ...(turn.model ? { model: turn.model } : {}),
@@ -55,9 +56,9 @@ function bounded(value: PersistedConversation): PersistedConversation {
     turns: value.turns.slice(-200).map(sanitizeTurn),
     timeline: value.timeline.slice(-100).map((step) => ({
       id: step.id,
-      label: step.label,
+      label: redactText(step.label),
       status: step.status,
-      ...(step.detail ? { detail: step.detail } : {}),
+      ...(step.detail ? { detail: redactText(step.detail) } : {}),
       ...(step.sources
         ? {
             sources: step.sources.flatMap((source) => {

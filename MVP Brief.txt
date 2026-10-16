@@ -1,0 +1,27 @@
+NUDGE MVP BRIEF
+
+Nudge is a Chrome extension that lets a user control websites through text, dictation, or an OpenAI Realtime voice call. It reads the visible page, chooses one permitted action, performs it, checks the result, and continues until it completes the task or needs help.
+
+SUPPORTED ACTIONS
+
+- Read visible page content, headings, links, buttons, forms, and selected options.
+- Search websites, apply filters, open results, and move through observed links.
+- Click visible controls, enter non-sensitive text, choose options, scroll, and wait for page changes.
+- Continue tasks across known browser tabs. Nudge can open Gmail, find an email, return to another tab, and transfer an OTP after the user requests that action.
+- Keep conversation history with links to the pages used for each result.
+- Show action progress inside the chat and let the user stop an active request.
+- Accept typed prompts and editable speech-to-text dictation.
+- Run a continuous OpenAI voice conversation with a floating Cloud Orb, stable transcription, natural pause detection, spoken AI responses, and immediate interruption when the user starts talking.
+- Speak verified browser-task results back through the same live call instead of creating a separate text-only reply.
+- Use the server's OpenAI key or a user-supplied key. The user can switch to a local Ollama model for text-based browser tasks.
+- Clear stored chat history from the side panel.
+
+SAFETY BOUNDARIES
+
+Nudge checks that each target still belongs to the observed page before it acts. It asks for confirmation before submitting personal data or changing account settings. It blocks purchases, transfers, destructive actions, password entry, payment-card entry, CAPTCHA bypass, and financial submission.
+
+Chrome keeps saved passwords outside the extension's reach. Nudge can focus a sign-in field so Chrome Autofill can offer saved credentials, but Nudge cannot read those passwords. OTP transfers use a short-lived in-memory value tied to the requested destination. Nudge does not submit the form.
+
+LOCAL REQUIREMENTS
+
+The Chrome extension connects to the Nudge server at http://127.0.0.1:4317. OpenAI features require a configured API key. Ollama tasks require a supported local model running at http://127.0.0.1:11434. The user must grant microphone access for dictation and live voice.

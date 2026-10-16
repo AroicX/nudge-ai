@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { SourceReferenceSchema } from './browser-context';
+
 export const VoiceSessionStateSchema = z.enum([
   'idle',
   'connecting',
@@ -20,6 +22,20 @@ export const VoiceSessionConfigSchema = z
   })
   .strict();
 
+export const VoiceToolResultSchema = z
+  .object({
+    ok: z.boolean(),
+    message: z.string().min(1).max(2_000),
+    sources: z.array(SourceReferenceSchema).max(10).optional(),
+  })
+  .strict();
+
+const VoiceProviderIdentitySchema = {
+  eventId: z.string().min(1).max(200).optional(),
+  itemId: z.string().min(1).max(200).optional(),
+  responseId: z.string().min(1).max(200).optional(),
+};
+
 export const VoiceEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('state'), state: VoiceSessionStateSchema }).strict(),
   z
@@ -28,10 +44,30 @@ export const VoiceEventSchema = z.discriminatedUnion('type', [
       role: z.enum(['user', 'assistant']),
       text: z.string().max(10_000),
       final: z.boolean(),
+      ...VoiceProviderIdentitySchema,
     })
     .strict(),
-  z.object({ type: z.literal('speech.started'), role: z.enum(['user', 'assistant']) }).strict(),
-  z.object({ type: z.literal('speech.stopped'), role: z.enum(['user', 'assistant']) }).strict(),
+  z
+    .object({
+      type: z.literal('speech.started'),
+      role: z.enum(['user', 'assistant']),
+      ...VoiceProviderIdentitySchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('speech.stopped'),
+      role: z.enum(['user', 'assistant']),
+      ...VoiceProviderIdentitySchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('speech.interrupted'),
+      role: z.literal('assistant'),
+      ...VoiceProviderIdentitySchema,
+    })
+    .strict(),
   z
     .object({
       type: z.literal('function.intent'),
@@ -45,4 +81,5 @@ export const VoiceEventSchema = z.discriminatedUnion('type', [
 
 export type VoiceSessionState = z.infer<typeof VoiceSessionStateSchema>;
 export type VoiceSessionConfig = z.infer<typeof VoiceSessionConfigSchema>;
+export type VoiceToolResult = z.infer<typeof VoiceToolResultSchema>;
 export type VoiceEvent = z.infer<typeof VoiceEventSchema>;

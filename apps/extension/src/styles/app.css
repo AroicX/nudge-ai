@@ -37,9 +37,15 @@ button.danger {
 .voice-orb {
   align-items: center;
   display: inline-flex;
-  height: 54px;
   justify-content: center;
-  width: 54px;
+}
+.voice-orb-control {
+  align-items: center;
+  background: transparent;
+  border-radius: 999px;
+  display: inline-flex;
+  justify-content: center;
+  padding: 0;
 }
 .live-transcript {
   border-left: 3px solid #6254e7;
@@ -65,7 +71,10 @@ header {
   display: flex;
   gap: 12px;
 }
-.header__settings {
+.header__actions {
+  align-items: center;
+  display: flex;
+  gap: 4px;
   margin-left: auto;
 }
 header h1,
@@ -279,6 +288,15 @@ header p {
   position: sticky;
   bottom: 12px;
 }
+.composer__voice-orb {
+  bottom: calc(100% + 12px);
+  height: 96px;
+  left: 50%;
+  position: absolute;
+  transform: translateX(-50%);
+  width: 96px;
+  z-index: 2;
+}
 .composer input {
   background: transparent;
   border: 0;
@@ -357,6 +375,10 @@ header p {
 }
 .icon-button--active {
   background: #171827;
+  color: white;
+}
+.icon-button--danger {
+  background: #d92d20;
   color: white;
 }
 .icon-button--send {
@@ -462,4 +484,73 @@ header p {
   --color-muted: #f1f3f8;
   --color-muted-foreground: #687087;
   --color-card: #ffffff;
+}
+
+/* Task cards: previews, results, capability prompts */
+.task-card {
+  background: #ffffff;
+  border: 1px solid #dde1eb;
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+  margin: 0 12px 10px;
+  padding: 12px;
+}
+.task-card h2 {
+  font-size: 14px;
+  margin: 0;
+}
+.task-card h3 {
+  color: #5b6478;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  margin: 4px 0 2px;
+  text-transform: uppercase;
+}
+.task-card p,
+.task-card li,
+.task-card dd {
+  font-size: 12px;
+  margin: 0;
+}
+.task-card ul {
+  margin: 0;
+  padding-left: 16px;
+}
+.task-card dl {
+  display: grid;
+  gap: 2px 8px;
+  grid-template-columns: auto 1fr;
+  margin: 0;
+}
+.task-card dt {
+  color: #5b6478;
+  font-size: 12px;
+}
+.task-card__eyebrow {
+  color: #6254e7;
+  font-weight: 600;
+}
+.task-card__warning {
+  color: #b42318;
+  font-weight: 600;
+}
+.task-card__note {
+  color: #5b6478;
+}
+.task-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.task-card--preview {
+  border-color: #c9c3f7;
+}
+.task-card--partially_completed,
+.task-card--failed {
+  border-color: #fedf89;
+}
+.task-card--exports a {
+  color: #4036a7;
+  font-size: 12px;
 }

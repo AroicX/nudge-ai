@@ -4,38 +4,48 @@ export function parseRealtimeEvent(input: unknown): VoiceEvent[] {
   if (!input || typeof input !== 'object') return [];
   const event = input as Record<string, unknown>;
   const candidates: unknown[] = [];
+  const identity = {
+    ...(typeof event.event_id === 'string' ? { eventId: event.event_id } : {}),
+    ...(typeof event.item_id === 'string' ? { itemId: event.item_id } : {}),
+    ...(typeof event.response_id === 'string' ? { responseId: event.response_id } : {}),
+  };
   if (event.type === 'input_audio_buffer.speech_started')
     candidates.push(
-      { type: 'speech.started', role: 'user' },
+      { type: 'speech.started', role: 'user', ...identity },
       { type: 'state', state: 'user-speaking' },
     );
   if (event.type === 'input_audio_buffer.speech_stopped')
     candidates.push(
-      { type: 'speech.stopped', role: 'user' },
+      { type: 'speech.stopped', role: 'user', ...identity },
       { type: 'state', state: 'listening' },
     );
   if (event.type === 'output_audio_buffer.started')
     candidates.push(
-      { type: 'speech.started', role: 'assistant' },
+      { type: 'speech.started', role: 'assistant', ...identity },
       { type: 'state', state: 'assistant-speaking' },
     );
-  if (event.type === 'output_audio_buffer.stopped' || event.type === 'output_audio_buffer.cleared')
+  if (event.type === 'output_audio_buffer.stopped')
     candidates.push(
-      { type: 'speech.stopped', role: 'assistant' },
+      { type: 'speech.stopped', role: 'assistant', ...identity },
+      { type: 'state', state: 'listening' },
+    );
+  if (event.type === 'output_audio_buffer.cleared')
+    candidates.push(
+      { type: 'speech.interrupted', role: 'assistant', ...identity },
       { type: 'state', state: 'listening' },
     );
   if (event.type === 'response.output_audio_transcript.delta' && typeof event.delta === 'string')
-    candidates.push({ type: 'transcript', role: 'assistant', text: event.delta, final: false });
+    candidates.push({ type: 'transcript', role: 'assistant', text: event.delta, final: false, ...identity });
   if (
     event.type === 'response.output_audio_transcript.done' &&
     typeof event.transcript === 'string'
   )
-    candidates.push({ type: 'transcript', role: 'assistant', text: event.transcript, final: true });
+    candidates.push({ type: 'transcript', role: 'assistant', text: event.transcript, final: true, ...identity });
   if (
     event.type === 'conversation.item.input_audio_transcription.completed' &&
     typeof event.transcript === 'string'
   )
-    candidates.push({ type: 'transcript', role: 'user', text: event.transcript, final: true });
+    candidates.push({ type: 'transcript', role: 'user', text: event.transcript, final: true, ...identity });
   if (
     event.type === 'response.function_call_arguments.done' &&
     typeof event.name === 'string' &&

@@ -1,19 +1,19 @@
 import type { VoiceEvent } from '@nudge/contracts';
 
 export interface VoiceTaskBridgeDependencies {
-  submitTurn(text: string): void;
-  stopTask(): void;
-  reportIntent(name: string, argumentsValue: Record<string, unknown>, callId: string): void;
+  /** Shared entry point with typed input; the controller classifies stop/pause/corrections. */
+  instruct(text: string): void;
 }
 
+/**
+ * Only final transcripts of the user's own speech become instructions. Assistant
+ * speech, partial transcripts and model function calls never issue commands,
+ * so voice playback cannot trigger browser actions.
+ */
 export function createVoiceTaskBridge(dependencies: VoiceTaskBridgeDependencies) {
   return (event: VoiceEvent): void => {
-    if (event.type === 'transcript' && event.role === 'user' && event.final) {
-      if (/^(stop|stop task|cancel)$/i.test(event.text.trim())) dependencies.stopTask();
-      else dependencies.submitTurn(event.text);
-    }
-    if (event.type === 'function.intent') {
-      dependencies.reportIntent(event.name, event.arguments, event.callId);
-    }
+    if (event.type !== 'transcript' || event.role !== 'user' || !event.final) return;
+    const text = event.text.trim();
+    if (text) dependencies.instruct(text);
   };
 }

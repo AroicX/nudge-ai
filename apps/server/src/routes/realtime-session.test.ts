@@ -71,7 +71,7 @@ describe('POST /api/realtime/session', () => {
 });
 
 describe('OpenAIRealtimeSessionIssuer', () => {
-  it('uses the current nested audio output voice field', async () => {
+  it('creates an interruptible conversational session without browser tools', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ value: 'ek_test', expires_at: 123 }), {
         status: 200,
@@ -87,6 +87,37 @@ describe('OpenAIRealtimeSessionIssuer', () => {
     const request = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     expect(request.session.voice).toBeUndefined();
     expect(request.session.audio.output.voice).toBe('marin');
+    expect(request.session.audio.input).toEqual({
+      transcription: { model: 'gpt-4o-mini-transcribe', language: 'en' },
+      noise_reduction: { type: 'near_field' },
+      turn_detection: {
+        type: 'semantic_vad',
+        eagerness: 'low',
+        create_response: true,
+        interrupt_response: true,
+      },
+    });
+    expect(request.session.tools ?? []).toEqual([]);
+    expect(request.session.instructions).toMatch(/never claim/i);
+    vi.unstubAllGlobals();
+  });
+
+  it('enables user transcription so speech reaches the task controller, and exposes no tools', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ value: 'ek_test', expires_at: 123 }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await new OpenAIRealtimeSessionIssuer().issue(
+      { apiKey: 'sk-test', model: 'gpt-realtime', voice: 'marin', transcribeModel: 'gpt-4o-mini-transcribe' },
+      new AbortController().signal,
+    );
+    const request = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(request.session.audio.input.transcription).toEqual({
+      model: 'gpt-4o-mini-transcribe',
+      language: 'en',
+    });
+    expect(request.session.tools ?? []).toEqual([]);
+    expect(request.session.instructions).toMatch(/never claim/i);
     vi.unstubAllGlobals();
   });
 });

@@ -86,7 +86,7 @@ describe('PageAdapter.observe', () => {
     expect(snapshot.text[0]).toHaveLength(2_000);
   });
 
-  it('exposes password fields only as redacted focus targets and excludes other sensitive fields', async () => {
+  it('exposes password and one-time-code fields only as value-less targets and excludes card fields', async () => {
     document.body.innerHTML = `
       <div data-nudge-root><button>Nudge internal</button></div>
       <input type="password" value="secret" />
@@ -98,10 +98,12 @@ describe('PageAdapter.observe', () => {
 
     const snapshot = await createPageAdapter({ document, window, documentId: 'doc_1' }).observe();
 
-    expect(snapshot.elements).toHaveLength(2);
+    expect(snapshot.elements).toHaveLength(3);
     expect(snapshot.elements[0]).toMatchObject({ inputType: 'password' });
     expect(snapshot.elements[0]).not.toHaveProperty('value');
-    expect(snapshot.elements[1]).toMatchObject({ name: 'Display name', value: 'Ada' });
+    expect(snapshot.elements[1]).not.toHaveProperty('value');
+    expect(snapshot.elements[2]).toMatchObject({ name: 'Display name', value: 'Ada' });
+    expect(JSON.stringify(snapshot)).not.toContain('123456');
     expect(JSON.stringify(snapshot)).not.toContain('secret');
     expect(JSON.stringify(snapshot)).not.toContain('4111111111111111');
   });
