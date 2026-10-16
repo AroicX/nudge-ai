@@ -47,4 +47,30 @@ describe('VoiceSessionController', () => {
     expect(transport.connect).not.toHaveBeenCalled();
     expect(transport.disconnect).toHaveBeenCalled();
   });
+
+  it('forwards verified browser results to the active realtime transport', () => {
+    const { transport } = transportFixture();
+    const controller = new VoiceSessionController(transport, vi.fn());
+
+    controller.sendToolResult('call-1', { ok: true, message: 'The filter is applied.' });
+
+    expect(transport.sendToolResult).toHaveBeenCalledWith('call-1', {
+      ok: true,
+      message: 'The filter is applied.',
+    });
+  });
+
+  it('reports whether text should stay in the realtime conversation', async () => {
+    const fixture = transportFixture();
+    const controller = new VoiceSessionController(
+      fixture.transport,
+      vi.fn().mockResolvedValue({ clientSecret: 'short', model: 'gpt-realtime', expiresAt: 10 }),
+    );
+    expect(controller.active).toBe(false);
+    await controller.start();
+    fixture.emit({ type: 'state', state: 'listening' });
+    expect(controller.active).toBe(true);
+    await controller.end();
+    expect(controller.active).toBe(false);
+  });
 });

@@ -1,4 +1,9 @@
-import type { VoiceEvent, VoiceSessionConfig, VoiceSessionState } from '@nudge/contracts';
+import type {
+  VoiceEvent,
+  VoiceSessionConfig,
+  VoiceSessionState,
+  VoiceToolResult,
+} from '@nudge/contracts';
 import type { VoiceTransport } from '@nudge/core';
 
 export class VoiceSessionController {
@@ -19,6 +24,10 @@ export class VoiceSessionController {
 
   get state(): VoiceSessionState {
     return this.#state;
+  }
+
+  get active(): boolean {
+    return !['idle', 'ended', 'failed'].includes(this.#state);
   }
 
   start(): Promise<void> {
@@ -64,5 +73,8 @@ export class VoiceSessionController {
   }
   sendText(text: string): void {
     this.transport.sendText(text);
+  }
+  sendToolResult(callId: string, result: VoiceToolResult): void {
+    this.transport.sendToolResult(callId, result);
   }
 }

@@ -1,5 +1,10 @@
 import { StrictMode, useEffect, useRef, useState } from 'react';
-import { ProviderSelectionSchema, type ProviderSelection } from '@nudge/contracts';
+import {
+  ProviderSelectionSchema,
+  type ProviderSelection,
+  type SourceReference,
+  type VoiceToolResult,
+} from '@nudge/contracts';
 import { createRoot } from 'react-dom/client';
 
 import { SidePanel } from '../../src/components/SidePanel';
@@ -18,6 +23,10 @@ import {
 } from '../../src/voice/realtime-transport';
 import { VoiceSessionController } from '../../src/voice/voice-session-controller';
 import { createVoiceTaskBridge } from '../../src/voice/voice-task-bridge';
+import {
+  createVoiceConversation,
+  routeComposerText,
+} from '../../src/voice/voice-conversation';
 import { openMicrophoneSetup, probeMicrophone } from '../../src/permissions/microphone';
 import { TabRegistry } from '../../src/tabs/tab-registry';
 import { reconcileProviderSelection } from '../../src/providers/provider-selection';
@@ -46,11 +55,17 @@ async function sendToPage<T>(tabId: number, message: unknown): Promise<T> {
 function App() {
   const state = useNudgeStore();
   const sendRef = useRef<(text: string) => void>(() => undefined);
+  const voiceTaskRef = useRef<(goal: string) => Promise<VoiceToolResult>>(async () => ({
+    ok: false,
+    message: 'Voice browser control is not ready.',
+  }));
   const controllerRef = useRef<VoiceSessionController | undefined>(undefined);
+  const voiceConversationRef = useRef<ReturnType<typeof createVoiceConversation> | undefined>(
+    undefined,
+  );
   const pushToTalkRef = useRef(
     new PushToTalkTransport((audio, signal) => client.transcribe(audio, signal)),
   );
-  const [voiceMuted, setVoiceMuted] = useState(false);
   const [pushRecording, setPushRecording] = useState(false);
   const [providerSelection, setProviderSelection] = useState<ProviderSelection>({ provider: 'openai' });
   const [providerHealth, setProviderHealth] = useState<Awaited<ReturnType<typeof client.getProviderHealth>>>();
@@ -140,39 +155,98 @@ function App() {
   };
   sendRef.current = (text) => void send(text);
 
+  if (!voiceConversationRef.current) {
+    voiceConversationRef.current = createVoiceConversation({
+      addTurn: (turn) => useNudgeStore.getState().addTurn(turn),
+      setLiveTranscript: (text) => useNudgeStore.getState().setVoiceTranscript(text),
+    });
+  }
+
   if (!controllerRef.current) {
     const bridge = createVoiceTaskBridge({
-      submitTurn: (text) => sendRef.current(text),
+      runBrowserTask: (goal) => voiceTaskRef.current(goal),
+      returnResult: (callId, result) => controllerRef.current?.sendToolResult(callId, result),
       stopTask: () => activeRun?.stop(),
-      reportIntent: (_name, argumentsValue) =>
-        sendRef.current(
-          typeof argumentsValue.goal === 'string'
-            ? argumentsValue.goal
-            : JSON.stringify(argumentsValue),
-        ),
     });
     controllerRef.current = new VoiceSessionController(
       createRealtimeVoiceTransport(browserRealtimeDependencies()),
       (signal) => client.issueRealtimeSession(signal),
       (event) => {
-        bridge(event);
+        void bridge(event);
+        voiceConversationRef.current?.handle(event);
         const current = useNudgeStore.getState();
         if (event.type === 'state') current.setVoiceState(event.state);
-        if (event.type === 'transcript') {
-          current.setVoiceTranscript(event.text);
-          if (event.final && event.role === 'assistant') {
-            current.addTurn({
-              id: crypto.randomUUID(),
-              role: 'assistant',
-              text: event.text,
-              createdAt: new Date().toISOString(),
-            });
-          }
-        }
         if (event.type === 'error') current.setStatus(event.message);
       },
     );
   }
+
+  voiceTaskRef.current = async (goal) => {
+    const current = useNudgeStore.getState();
+    if (current.busy) return { ok: false, message: 'Nudge is already working on a task.' };
+    current.setBusy(true);
+    const runId = ++activeRunId;
+    let finalMessage = '';
+    let finalSources: SourceReference[] | undefined;
+    try {
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id === undefined) throw new Error('No active browser tab is available.');
+      activeRun = await runBrowserTask(
+        {
+          tabId: tab.id,
+          utterance: goal,
+          conversation: current.conversation,
+          task: current.task,
+          provider: 'openai',
+        },
+        {
+          tabs: tabRegistry,
+          observeTab: async (targetTabId) =>
+            sendToPage(targetTabId, {
+              type: 'page.observe', requestId: crypto.randomUUID(),
+              taskId: current.task?.id ?? 'new',
+            }),
+          step: (request, signal, provider) => client.step(request, signal, provider),
+          executeOnTab: async (targetTabId, action, guard) =>
+            sendToPage(targetTabId, {
+              type: 'page.execute', requestId: crypto.randomUUID(),
+              taskId: current.task?.id ?? 'new', tabId: guard.tabId,
+              documentId: guard.documentId,
+              cancellationGeneration: guard.cancellationGeneration,
+              action,
+            }),
+          onStatus: current.setStatus,
+          onAction: current.addAction,
+          onMessage: (message, sources) => {
+            finalMessage = message;
+            finalSources = sources;
+          },
+          onTimelineStep: current.setTimelineStep,
+        },
+      );
+      const result = await activeRun.done;
+      if (runId !== activeRunId) return { ok: false, message: 'The browser task was superseded.' };
+      if ('id' in result) {
+        current.setTask(result);
+        return {
+          ok: true,
+          message: finalMessage || 'The browser task completed.',
+          ...(finalSources ? { sources: finalSources } : {}),
+        } as VoiceToolResult;
+      }
+      return {
+        ok: false,
+        message: result.reason || (result.status === 'stopped' ? 'The browser task was stopped.' : 'The browser task failed.'),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : 'The browser task could not be completed.',
+      };
+    } finally {
+      if (runId === activeRunId) current.setBusy(false);
+    }
+  };
 
   useEffect(
     () => {
@@ -261,7 +335,19 @@ function App() {
         setFallbackRequest(undefined);
       }}
       actions={state.actions}
-      onSend={(text) => void send(text)}
+      onSend={(text) =>
+        routeComposerText(text, {
+          voiceActive: providerSelection.provider === 'openai' && Boolean(controllerRef.current?.active),
+          sendRealtimeText: (value) => {
+            state.addTurn({
+              id: crypto.randomUUID(), role: 'user', text: value,
+              createdAt: new Date().toISOString(),
+            });
+            controllerRef.current?.sendText(value);
+          },
+          sendTextTask: (value) => void send(value),
+        })
+      }
       onStop={() => activeRun?.stop()}
       onSaveKey={(key) =>
         void client
@@ -291,7 +377,6 @@ function App() {
       }
       voiceState={state.voiceState}
       voiceTranscript={state.voiceTranscript}
-      voiceMuted={voiceMuted}
       showRealtimeVoice={providerSelection.provider === 'openai'}
       onStartVoice={() =>
         void ensureMicrophone().then((ready) => {
@@ -299,11 +384,6 @@ function App() {
         })
       }
       onEndVoice={() => void controllerRef.current?.end()}
-      onMuteVoice={() => {
-        const next = !voiceMuted;
-        setVoiceMuted(next);
-        controllerRef.current?.setMuted(next);
-      }}
       onInterruptVoice={() => controllerRef.current?.interrupt()}
       onPushToTalk={() => void togglePushToTalk()}
       onDictate={togglePushToTalk}
