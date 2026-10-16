@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { SourceReferenceSchema } from './browser-context';
+
 export const VoiceSessionStateSchema = z.enum([
   'idle',
   'connecting',
@@ -17,6 +19,14 @@ export const VoiceSessionConfigSchema = z
     clientSecret: z.string().min(1).max(2_000),
     model: z.string().min(1).max(120),
     expiresAt: z.number().int().positive(),
+  })
+  .strict();
+
+export const VoiceToolResultSchema = z
+  .object({
+    ok: z.boolean(),
+    message: z.string().min(1).max(2_000),
+    sources: z.array(SourceReferenceSchema).max(10).optional(),
   })
   .strict();
 
@@ -45,4 +55,5 @@ export const VoiceEventSchema = z.discriminatedUnion('type', [
 
 export type VoiceSessionState = z.infer<typeof VoiceSessionStateSchema>;
 export type VoiceSessionConfig = z.infer<typeof VoiceSessionConfigSchema>;
+export type VoiceToolResult = z.infer<typeof VoiceToolResultSchema>;
 export type VoiceEvent = z.infer<typeof VoiceEventSchema>;
