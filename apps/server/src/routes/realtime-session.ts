@@ -61,7 +61,6 @@ export class OpenAIRealtimeSessionIssuer implements RealtimeSessionIssuer {
                 required: ['goal'],
                 additionalProperties: false,
               },
-              strict: true,
             },
           ],
           audio: {

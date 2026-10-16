@@ -109,7 +109,6 @@ describe('OpenAIRealtimeSessionIssuer', () => {
           required: ['goal'],
           additionalProperties: false,
         },
-        strict: true,
       },
     ]);
     vi.unstubAllGlobals();
