@@ -11,6 +11,7 @@ function transportFixture() {
     interrupt: vi.fn(),
     setMuted: vi.fn(),
     sendText: vi.fn(),
+    sendToolResult: vi.fn(),
     subscribe(next) {
       listener = next;
       return () => undefined;
