@@ -71,7 +71,7 @@ describe('POST /api/realtime/session', () => {
 });
 
 describe('OpenAIRealtimeSessionIssuer', () => {
-  it('uses the current nested audio output voice field', async () => {
+  it('mirrors the conversational audio and browser tool configuration', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ value: 'ek_test', expires_at: 123 }), {
         status: 200,
@@ -87,6 +87,31 @@ describe('OpenAIRealtimeSessionIssuer', () => {
     const request = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     expect(request.session.voice).toBeUndefined();
     expect(request.session.audio.output.voice).toBe('marin');
+    expect(request.session.audio.input).toEqual({
+      transcription: { model: 'gpt-transcribe', language: 'en' },
+      noise_reduction: { type: 'near_field' },
+      turn_detection: {
+        type: 'semantic_vad',
+        eagerness: 'low',
+        create_response: true,
+        interrupt_response: true,
+      },
+    });
+    expect(request.session.tool_choice).toBe('auto');
+    expect(request.session.tools).toEqual([
+      {
+        type: 'function',
+        name: 'run_browser_task',
+        description: expect.any(String),
+        parameters: {
+          type: 'object',
+          properties: { goal: { type: 'string', minLength: 1, maxLength: 2_000 } },
+          required: ['goal'],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+    ]);
     vi.unstubAllGlobals();
   });
 });

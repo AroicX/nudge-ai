@@ -46,10 +46,31 @@ export class OpenAIRealtimeSessionIssuer implements RealtimeSessionIssuer {
           type: 'realtime',
           model: input.model,
           output_modalities: ['audio'],
+          tool_choice: 'auto',
+          tools: [
+            {
+              type: 'function',
+              name: 'run_browser_task',
+              description:
+                'Run a browser task through Nudge and return only its verified result. Use this for every request that reads or changes a website.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  goal: { type: 'string', minLength: 1, maxLength: 2_000 },
+                },
+                required: ['goal'],
+                additionalProperties: false,
+              },
+              strict: true,
+            },
+          ],
           audio: {
             input: {
+              transcription: { model: 'gpt-transcribe', language: 'en' },
+              noise_reduction: { type: 'near_field' },
               turn_detection: {
-                type: 'server_vad',
+                type: 'semantic_vad',
+                eagerness: 'low',
                 interrupt_response: true,
                 create_response: true,
               },
@@ -57,7 +78,7 @@ export class OpenAIRealtimeSessionIssuer implements RealtimeSessionIssuer {
             output: { voice: input.voice },
           },
           instructions:
-            'Be concise and conversational. Browser actions are requests only; never claim an action completed until Nudge reports verified evidence.',
+            'You are Nudge, a concise conversational browser copilot. Speak naturally and ask one short question at a time. Use run_browser_task for every request that reads or changes a website. Never invent page facts or claim an action completed until the tool returns verified evidence.',
         },
       }),
     });
