@@ -50,7 +50,6 @@ function App() {
   const pushToTalkRef = useRef(
     new PushToTalkTransport((audio, signal) => client.transcribe(audio, signal)),
   );
-  const [voiceMuted, setVoiceMuted] = useState(false);
   const [pushRecording, setPushRecording] = useState(false);
   const [providerSelection, setProviderSelection] = useState<ProviderSelection>({ provider: 'openai' });
   const [providerHealth, setProviderHealth] = useState<Awaited<ReturnType<typeof client.getProviderHealth>>>();
@@ -291,7 +290,6 @@ function App() {
       }
       voiceState={state.voiceState}
       voiceTranscript={state.voiceTranscript}
-      voiceMuted={voiceMuted}
       showRealtimeVoice={providerSelection.provider === 'openai'}
       onStartVoice={() =>
         void ensureMicrophone().then((ready) => {
@@ -299,11 +297,6 @@ function App() {
         })
       }
       onEndVoice={() => void controllerRef.current?.end()}
-      onMuteVoice={() => {
-        const next = !voiceMuted;
-        setVoiceMuted(next);
-        controllerRef.current?.setMuted(next);
-      }}
       onInterruptVoice={() => controllerRef.current?.interrupt()}
       onPushToTalk={() => void togglePushToTalk()}
       onDictate={togglePushToTalk}

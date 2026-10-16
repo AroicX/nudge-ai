@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createRealtimeVoiceTransport } from './realtime-transport';
 
-function setup() {
+function setup(play = vi.fn().mockResolvedValue(undefined)) {
   const sent: string[] = [];
   let message: ((event: MessageEvent<string>) => void) | undefined;
   const track = { enabled: true, stop: vi.fn() } as unknown as MediaStreamTrack;
@@ -19,16 +19,27 @@ function setup() {
       if (type === 'message') message = listener;
     },
   };
-  const peer = {
-    addTrack: vi.fn(),
+  const peer: {
+    addTrack(track: MediaStreamTrack, stream: MediaStream): void;
+    createDataChannel(): typeof channel;
+    createOffer(): Promise<RTCSessionDescriptionInit>;
+    setLocalDescription(description: RTCSessionDescriptionInit): Promise<void>;
+    setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void>;
+    close(): void;
+    ontrack: ((event: RTCTrackEvent) => void) | null;
+  } = {
+    addTrack: vi.fn<(track: MediaStreamTrack, stream: MediaStream) => void>(),
     createDataChannel: () => channel,
-    createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
-    setLocalDescription: vi.fn(),
-    setRemoteDescription: vi.fn(),
-    close: vi.fn(),
+    createOffer: vi.fn<() => Promise<RTCSessionDescriptionInit>>().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+    setLocalDescription: vi.fn<(description: RTCSessionDescriptionInit) => Promise<void>>().mockResolvedValue(undefined),
+    setRemoteDescription: vi.fn<(description: RTCSessionDescriptionInit) => Promise<void>>().mockResolvedValue(undefined),
+    close: vi.fn<() => void>(),
     ontrack: null,
   };
-  const audio = Object.assign(document.createElement('audio'), { pause: vi.fn() });
+  const audio = Object.assign(document.createElement('audio'), {
+    pause: vi.fn(),
+    play,
+  });
   const transport = createRealtimeVoiceTransport({
     getUserMedia: async () => stream,
     createPeer: () => peer,
@@ -64,6 +75,40 @@ describe('realtime transport', () => {
       role: 'assistant',
       text: 'Hello',
       final: true,
+    });
+  });
+
+  it('starts remote AI audio playback when the WebRTC track arrives', async () => {
+    const fixture = setup();
+    await fixture.transport.connect({
+      clientSecret: 'ephemeral',
+      model: 'gpt-realtime',
+      expiresAt: 123,
+    });
+
+    fixture.peer.ontrack?.({ streams: [{} as MediaStream] } as unknown as RTCTrackEvent);
+
+    expect(fixture.audio.srcObject).toBeTruthy();
+    expect(fixture.audio.play).toHaveBeenCalledOnce();
+  });
+
+  it('reports when Chrome blocks remote AI audio playback', async () => {
+    const fixture = setup(vi.fn().mockRejectedValue(new Error('blocked')));
+    const events: unknown[] = [];
+    fixture.transport.subscribe((event) => events.push(event));
+    await fixture.transport.connect({
+      clientSecret: 'ephemeral',
+      model: 'gpt-realtime',
+      expiresAt: 123,
+    });
+
+    fixture.peer.ontrack?.({ streams: [{} as MediaStream] } as unknown as RTCTrackEvent);
+    await Promise.resolve();
+
+    expect(events).toContainEqual({ type: 'state', state: 'failed' });
+    expect(events).toContainEqual({
+      type: 'error',
+      message: 'Chrome blocked AI voice playback. Start the voice call again.',
     });
   });
 

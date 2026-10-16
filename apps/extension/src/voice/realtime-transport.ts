@@ -55,7 +55,16 @@ export function createRealtimeVoiceTransport(
       audio = dependencies.createAudio();
       audio.autoplay = true;
       localPeer.ontrack = (event) => {
-        if (audio) audio.srcObject = event.streams[0] ?? null;
+        const remoteAudio = audio;
+        if (!remoteAudio) return;
+        remoteAudio.srcObject = event.streams[0] ?? null;
+        void remoteAudio.play().catch(() => {
+          emit({ type: 'state', state: 'failed' });
+          emit({
+            type: 'error',
+            message: 'Chrome blocked AI voice playback. Start the voice call again.',
+          });
+        });
       };
       localStream.getTracks().forEach((track) => localPeer.addTrack(track, localStream));
       channel = localPeer.createDataChannel('oai-events');

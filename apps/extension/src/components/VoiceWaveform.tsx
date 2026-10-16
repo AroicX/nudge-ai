@@ -21,14 +21,26 @@ function toOrbState(state: VoiceSessionState): OrbState {
   }
 }
 
-export function VoiceWaveform({ state }: { state: VoiceSessionState }) {
+export function VoiceWaveform({
+  state,
+  size = 54,
+  onEnd,
+  floating = false,
+}: {
+  state: VoiceSessionState;
+  size?: number;
+  onEnd?: () => void;
+  floating?: boolean;
+}) {
   const orbState = toOrbState(state);
-
-  return (
-    <span className="voice-orb" aria-hidden="true">
+  const orb = (
+    <span
+      className={`voice-orb${floating ? ' composer__voice-orb' : ''}`}
+      aria-hidden="true"
+    >
       <Orb
         theme="cloud"
-        size={54}
+        size={size}
         interactive={false}
         signal={{
           state: orbState,
@@ -37,5 +49,19 @@ export function VoiceWaveform({ state }: { state: VoiceSessionState }) {
         }}
       />
     </span>
+  );
+
+  if (!onEnd) return orb;
+
+  return (
+    <button
+      type="button"
+      className="voice-orb-control"
+      aria-label="End voice call"
+      onClick={onEnd}
+    >
+      {orb}
+      <span className="sr-only" aria-live="polite">Voice call: {state.replace('-', ' ')}</span>
+    </button>
   );
 }

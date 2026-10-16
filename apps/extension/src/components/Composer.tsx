@@ -1,11 +1,12 @@
 import type { VoiceSessionState } from '@nudge/contracts';
-import { AudioLines, Mic, MicOff, PhoneOff, Send, Square } from 'lucide-react';
+import { AudioLines, Mic, Send, Square, X } from 'lucide-react';
 import { type FormEvent } from 'react';
+
+import { VoiceWaveform } from './VoiceWaveform';
 
 export function Composer({
   busy,
   voiceState,
-  voiceMuted,
   draft,
   showRealtimeVoice,
   dictating,
@@ -15,11 +16,9 @@ export function Composer({
   onStop,
   onStartVoice,
   onEndVoice,
-  onMuteVoice,
 }: {
   busy: boolean;
   voiceState: VoiceSessionState;
-  voiceMuted: boolean;
   draft: string;
   showRealtimeVoice: boolean;
   dictating: boolean;
@@ -29,7 +28,6 @@ export function Composer({
   onStop(): void;
   onStartVoice(): void;
   onEndVoice(): void;
-  onMuteVoice(): void;
 }) {
   const voiceActive = !['idle', 'ended', 'failed'].includes(voiceState);
   const submit = (event: FormEvent) => {
@@ -43,6 +41,9 @@ export function Composer({
 
   return (
     <form aria-label="Message Nudge" className="composer" onSubmit={submit}>
+      {showRealtimeVoice && voiceActive ? (
+        <VoiceWaveform state={voiceState} size={96} floating />
+      ) : null}
       <input
         id="nudge-message"
         aria-label="Tell Nudge what to do"
@@ -52,16 +53,6 @@ export function Composer({
         onChange={(event) => onDraftChange(event.target.value)}
       />
       <div className="composer__actions">
-        {busy ? (
-          <button
-            type="button"
-            className="icon-button icon-button--quiet"
-            aria-label="Stop"
-            onClick={onStop}
-          >
-            <Square size={16} fill="currentColor" />
-          </button>
-        ) : null}
         <button
           type="button"
           className={`icon-button icon-button--quiet${dictating ? ' is-recording' : ''}`}
@@ -71,24 +62,14 @@ export function Composer({
           {dictating ? <Square size={15} fill="currentColor" /> : <Mic size={18} />}
         </button>
         {showRealtimeVoice && voiceActive ? (
-          <>
-            <button
-              type="button"
-              className="icon-button icon-button--quiet"
-              aria-label={voiceMuted ? 'Unmute voice call' : 'Mute voice call'}
-              onClick={onMuteVoice}
-            >
-              {voiceMuted ? <MicOff size={18} /> : <Mic size={18} />}
-            </button>
-            <button
-              type="button"
-              className="icon-button icon-button--active"
-              aria-label="End voice call"
-              onClick={onEndVoice}
-            >
-              <PhoneOff size={18} />
-            </button>
-          </>
+          <button
+            type="button"
+            className="icon-button icon-button--danger"
+            aria-label="End voice call"
+            onClick={onEndVoice}
+          >
+            <X size={18} />
+          </button>
         ) : showRealtimeVoice ? (
           <button
             type="button"
@@ -99,14 +80,25 @@ export function Composer({
             <AudioLines size={19} />
           </button>
         ) : null}
-        <button
-          type="submit"
-          className="icon-button icon-button--send"
-          aria-label="Send message"
-          disabled={busy || !draft.trim()}
-        >
-          <Send size={18} />
-        </button>
+        {busy ? (
+          <button
+            type="button"
+            className="icon-button icon-button--send"
+            aria-label="Stop"
+            onClick={onStop}
+          >
+            <Square size={16} fill="currentColor" />
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className="icon-button icon-button--send"
+            aria-label="Send message"
+            disabled={!draft.trim()}
+          >
+            <Send size={18} />
+          </button>
+        )}
       </div>
     </form>
   );
