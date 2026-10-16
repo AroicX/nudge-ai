@@ -27,7 +27,9 @@ export class VoiceSessionController {
   }
 
   get active(): boolean {
-    return !['idle', 'ended', 'failed'].includes(this.#state);
+    return ['listening', 'user-speaking', 'assistant-speaking', 'interrupted'].includes(
+      this.#state,
+    );
   }
 
   start(): Promise<void> {

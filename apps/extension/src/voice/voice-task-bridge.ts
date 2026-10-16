@@ -42,6 +42,10 @@ export function createVoiceTaskBridge(dependencies: VoiceTaskBridgeDependencies)
       calls.set(event.callId, resultPromise);
       if (calls.size > 200) calls.delete(calls.keys().next().value!);
     }
-    dependencies.returnResult(event.callId, await resultPromise);
+    try {
+      dependencies.returnResult(event.callId, await resultPromise);
+    } catch {
+      // The user may end the voice call while its browser task is still finishing.
+    }
   };
 }

@@ -17,7 +17,7 @@ function transportFixture() {
       return () => undefined;
     },
   };
-  return { transport, emit: listener };
+  return { transport, emit: (event: Parameters<VoiceEventListener>[0]) => listener(event) };
 }
 
 describe('VoiceSessionController', () => {
@@ -68,6 +68,7 @@ describe('VoiceSessionController', () => {
     );
     expect(controller.active).toBe(false);
     await controller.start();
+    expect(controller.active).toBe(false);
     fixture.emit({ type: 'state', state: 'listening' });
     expect(controller.active).toBe(true);
     await controller.end();

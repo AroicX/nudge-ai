@@ -58,4 +58,21 @@ describe('voice task bridge', () => {
     expect(stopTask).toHaveBeenCalledOnce();
     expect(runBrowserTask).not.toHaveBeenCalled();
   });
+
+  it('does not reject when the call ends before a browser result returns', async () => {
+    const bridge = createVoiceTaskBridge({
+      runBrowserTask: vi.fn().mockResolvedValue({ ok: true, message: 'Done.' }),
+      returnResult: vi.fn(() => {
+        throw new Error('Voice connection is not ready.');
+      }),
+      stopTask: vi.fn(),
+    });
+
+    await expect(
+      bridge({
+        type: 'function.intent', name: 'run_browser_task',
+        arguments: { goal: 'Open settings' }, callId: 'call-closed',
+      }),
+    ).resolves.toBeUndefined();
+  });
 });
