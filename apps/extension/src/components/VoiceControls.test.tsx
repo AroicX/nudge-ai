@@ -22,7 +22,7 @@ describe('VoiceControls', () => {
     );
     expect(document.querySelector('[data-orb-state="speaking"]')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Interrupt' }));
-    fireEvent.click(screen.getByRole('button', { name: 'End Call' }));
+    fireEvent.click(screen.getByRole('button', { name: 'End voice call' }));
     expect(onInterrupt).toHaveBeenCalledOnce();
     expect(onEnd).toHaveBeenCalledOnce();
   });

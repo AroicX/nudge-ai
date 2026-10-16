@@ -39,7 +39,20 @@ export default defineConfig({
     description: 'A fast, conversational browser assistant that acts with you in control.',
     permissions: ['activeTab', 'scripting', 'sidePanel', 'storage', 'tabs'],
     host_permissions: ['http://*/*', 'https://*/*'],
-    action: { default_title: 'Open Nudge' },
+    icons: {
+      16: 'icons/nudge-16.png',
+      32: 'icons/nudge-32.png',
+      48: 'icons/nudge-48.png',
+      128: 'icons/nudge-128.png',
+    },
+    action: {
+      default_title: 'Open Nudge',
+      default_icon: {
+        16: 'icons/nudge-16.png',
+        32: 'icons/nudge-32.png',
+        48: 'icons/nudge-48.png',
+      },
+    },
     side_panel: { default_path: 'sidepanel.html' },
   },
 });

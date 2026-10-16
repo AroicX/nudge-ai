@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 112" role="img" aria-labelledby="title desc">
+  <title id="title">Nudge</title>
+  <desc id="desc">Nudge wordmark with a colorful continuous n gesture rising into a clicked arrow.</desc>
+  <defs>
+    <linearGradient id="gesture" x1="18" y1="87" x2="94" y2="31" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#623cff"/>
+      <stop offset="0.52" stop-color="#f03b92"/>
+      <stop offset="1" stop-color="#ff8a25"/>
+    </linearGradient>
+    <radialGradient id="surface" cx="0" cy="0" r="1" gradientTransform="translate(58 53) rotate(90) scale(64)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#151d43"/>
+      <stop offset="1" stop-color="#080d25"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="4" width="104" height="104" rx="27" fill="url(#surface)"/>
+  <path d="M25 86V61C25 48 33 40 45 40C57 40 65 48 65 61V72C65 82 71 89 80 89C89 89 95 82 95 72V51" fill="none" stroke="url(#gesture)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M95 34L82 51H108L95 34Z" fill="url(#gesture)" stroke="url(#gesture)" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M95 24V16M104 28L110 21M86 28L80 21" fill="none" stroke="url(#gesture)" stroke-width="4.5" stroke-linecap="round"/>
+  <text x="128" y="77" fill="#171827" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="62" font-weight="750" letter-spacing="-2">Nudge</text>
+</svg>

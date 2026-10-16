@@ -23,7 +23,7 @@ export function VoiceControls({
   return (
     <section className="voice-controls" aria-label="Voice call">
       <div>
-        <VoiceWaveform state={state} />
+        <VoiceWaveform state={state} {...(active ? { onEnd } : {})} />
         <span aria-live="polite">
           {state === 'failed' ? 'Voice unavailable — typing still works' : state.replace('-', ' ')}
         </span>
@@ -33,11 +33,7 @@ export function VoiceControls({
           <button type="button" onClick={onStart}>
             Start Voice
           </button>
-        ) : (
-          <button type="button" className="danger" onClick={onEnd}>
-            End Call
-          </button>
-        )}
+        ) : null}
         {active ? (
           <button type="button" className="secondary" onClick={onMute}>
             {muted ? 'Unmute' : 'Mute'}
