@@ -28,7 +28,15 @@ function requirePairingSecret() {
   };
 }
 
+// `debugger` cannot be an optional permission in Chrome. It is used only for trusted
+// pointer/keyboard input on the task's own tab, attached on demand and detached afterwards.
+const permissions = ['activeTab', 'scripting', 'sidePanel', 'storage', 'tabs', 'debugger'];
+
+// E2E builds (WXT_PUBLIC_NUDGE_E2E=1) expose test hooks in the side panel and go to a separate folder.
+const e2e = process.env.WXT_PUBLIC_NUDGE_E2E === '1';
+
 export default defineConfig({
+  ...(e2e ? { outDir: '.output-e2e' } : {}),
   modules: ['@wxt-dev/module-react'],
   vite: () => ({
     envDir: '../..',
@@ -37,7 +45,7 @@ export default defineConfig({
   manifest: {
     name: 'Nudge',
     description: 'A fast, conversational browser assistant that acts with you in control.',
-    permissions: ['activeTab', 'scripting', 'sidePanel', 'storage', 'tabs'],
+    permissions,
     host_permissions: ['http://*/*', 'https://*/*'],
     icons: {
       16: 'icons/nudge-16.png',

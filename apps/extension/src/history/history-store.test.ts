@@ -110,3 +110,15 @@ describe('history store', () => {
     expect((storage.value() as PersistedConversation).turns[0]!.sources).toHaveLength(1);
   });
 });
+
+describe('history redaction', () => {
+  it('redacts code-like text in persisted turns and timeline', async () => {
+    const storage = memoryStorage();
+    await createHistoryStore(storage).saveHistory({
+      version: 1,
+      turns: [{ id: 't1', role: 'assistant', text: 'Your Acme verification code is 482913', createdAt: '2026-10-15T20:00:00.000Z', sources: [] }],
+      timeline: [{ id: 's1', label: 'Found verification code 482913', status: 'completed' }],
+    });
+    expect(JSON.stringify(storage.value())).not.toContain('482913');
+  });
+});

@@ -9,7 +9,7 @@ export interface RealtimeSessionMaterial {
 
 export interface RealtimeSessionIssuer {
   issue(
-    input: { apiKey: string; model: string; voice: string },
+    input: { apiKey: string; model: string; voice: string; transcribeModel?: string },
     signal: AbortSignal,
   ): Promise<RealtimeSessionMaterial>;
 }
@@ -34,7 +34,7 @@ const RequestSchema = z.object({ voice: z.enum(['marin', 'cedar']).default('mari
 
 export class OpenAIRealtimeSessionIssuer implements RealtimeSessionIssuer {
   async issue(
-    input: { apiKey: string; model: string; voice: string },
+    input: { apiKey: string; model: string; voice: string; transcribeModel?: string },
     signal: AbortSignal,
   ): Promise<RealtimeSessionMaterial> {
     const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
@@ -46,26 +46,12 @@ export class OpenAIRealtimeSessionIssuer implements RealtimeSessionIssuer {
           type: 'realtime',
           model: input.model,
           output_modalities: ['audio'],
-          tool_choice: 'auto',
-          tools: [
-            {
-              type: 'function',
-              name: 'run_browser_task',
-              description:
-                'Run a browser task through Nudge and return only its verified result. Use this for every request that reads or changes a website.',
-              parameters: {
-                type: 'object',
-                properties: {
-                  goal: { type: 'string', minLength: 1, maxLength: 2_000 },
-                },
-                required: ['goal'],
-                additionalProperties: false,
-              },
-            },
-          ],
           audio: {
             input: {
-              transcription: { model: 'gpt-transcribe', language: 'en' },
+              transcription: {
+                model: input.transcribeModel ?? 'gpt-4o-mini-transcribe',
+                language: 'en',
+              },
               noise_reduction: { type: 'near_field' },
               turn_detection: {
                 type: 'semantic_vad',
@@ -76,8 +62,9 @@ export class OpenAIRealtimeSessionIssuer implements RealtimeSessionIssuer {
             },
             output: { voice: input.voice },
           },
+          tools: [],
           instructions:
-            'You are Nudge, a concise conversational browser copilot. Speak naturally and ask one short question at a time. Use run_browser_task for every request that reads or changes a website. Never invent page facts or claim an action completed until the tool returns verified evidence.',
+            "You are the voice of Nudge, a browser assistant. Nudge's task engine hears the user's words directly and performs browser actions itself; you do not perform actions. Reply briefly (a few words such as 'On it' or a short clarification). Never claim an action happened unless Nudge reported it in a progress update, and never invent results.",
         },
       }),
     });
@@ -106,6 +93,7 @@ export function registerRealtimeSessionRoute(
     issuer: RealtimeSessionIssuer;
     getApiKey(): string;
     model: string;
+    transcribeModel?: string;
     timeoutMs: number;
   },
 ): void {
@@ -122,7 +110,7 @@ export function registerRealtimeSessionRoute(
       const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
       try {
         return await options.issuer.issue(
-          { apiKey, model: options.model, voice: input.data.voice },
+          { apiKey, model: options.model, voice: input.data.voice, ...(options.transcribeModel ? { transcribeModel: options.transcribeModel } : {}) },
           controller.signal,
         );
       } catch (error) {

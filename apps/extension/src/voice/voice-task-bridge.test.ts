@@ -3,76 +3,21 @@ import { describe, expect, it, vi } from 'vitest';
 import { createVoiceTaskBridge } from './voice-task-bridge';
 
 describe('voice task bridge', () => {
-  it('runs one valid browser intent and returns its verified result', async () => {
-    const runBrowserTask = vi.fn().mockResolvedValue({ ok: true, message: 'Found three kettles.' });
-    const returnResult = vi.fn();
-    const bridge = createVoiceTaskBridge({ runBrowserTask, returnResult, stopTask: vi.fn() });
-
-    await bridge({ type: 'function.intent', name: 'run_browser_task', arguments: { goal: 'Find a kettle' }, callId: 'call-1' });
-
-    expect(runBrowserTask).toHaveBeenCalledWith('Find a kettle');
-    expect(returnResult).toHaveBeenCalledWith('call-1', { ok: true, message: 'Found three kettles.' });
+  it('routes final user speech into the shared task controller as voice', () => {
+    const instruct = vi.fn();
+    const bridge = createVoiceTaskBridge({ instruct });
+    bridge({ type: 'transcript', role: 'user', text: 'Find an iPhone', final: true });
+    bridge({ type: 'transcript', role: 'user', text: 'stop', final: true });
+    expect(instruct.mock.calls).toEqual([['Find an iPhone'], ['stop']]);
   });
 
-  it('deduplicates repeated call IDs and returns the cached outcome', async () => {
-    const runBrowserTask = vi.fn().mockResolvedValue({ ok: true, message: 'Done.' });
-    const returnResult = vi.fn();
-    const bridge = createVoiceTaskBridge({ runBrowserTask, returnResult, stopTask: vi.fn() });
-    const intent = { type: 'function.intent' as const, name: 'run_browser_task', arguments: { goal: 'Open account settings' }, callId: 'call-1' };
-
-    await Promise.all([bridge(intent), bridge(intent)]);
-
-    expect(runBrowserTask).toHaveBeenCalledOnce();
-    expect(returnResult).toHaveBeenCalledTimes(2);
-  });
-
-  it('rejects malformed browser goals without starting a task', async () => {
-    const runBrowserTask = vi.fn();
-    const returnResult = vi.fn();
-    const bridge = createVoiceTaskBridge({ runBrowserTask, returnResult, stopTask: vi.fn() });
-
-    await bridge({ type: 'function.intent', name: 'run_browser_task', arguments: { goal: '' }, callId: 'call-1' });
-
-    expect(runBrowserTask).not.toHaveBeenCalled();
-    expect(returnResult).toHaveBeenCalledWith('call-1', { ok: false, message: 'I could not understand the browser task.' });
-  });
-
-  it('returns an unavailable-tab failure without inventing success', async () => {
-    const runBrowserTask = vi.fn().mockRejectedValue(new Error('No active browser tab is available.'));
-    const returnResult = vi.fn();
-    const bridge = createVoiceTaskBridge({ runBrowserTask, returnResult, stopTask: vi.fn() });
-
-    await bridge({ type: 'function.intent', name: 'run_browser_task', arguments: { goal: 'Read this page' }, callId: 'call-1' });
-
-    expect(returnResult).toHaveBeenCalledWith('call-1', { ok: false, message: 'No active browser tab is available.' });
-  });
-
-  it('shares Stop cancellation without submitting generic transcripts', async () => {
-    const stopTask = vi.fn();
-    const runBrowserTask = vi.fn();
-    const bridge = createVoiceTaskBridge({ runBrowserTask, returnResult: vi.fn(), stopTask });
-
-    await bridge({ type: 'transcript', role: 'user', text: 'stop task', final: true });
-    await bridge({ type: 'transcript', role: 'user', text: 'Find an iPhone', final: true });
-
-    expect(stopTask).toHaveBeenCalledOnce();
-    expect(runBrowserTask).not.toHaveBeenCalled();
-  });
-
-  it('does not reject when the call ends before a browser result returns', async () => {
-    const bridge = createVoiceTaskBridge({
-      runBrowserTask: vi.fn().mockResolvedValue({ ok: true, message: 'Done.' }),
-      returnResult: vi.fn(() => {
-        throw new Error('Voice connection is not ready.');
-      }),
-      stopTask: vi.fn(),
-    });
-
-    await expect(
-      bridge({
-        type: 'function.intent', name: 'run_browser_task',
-        arguments: { goal: 'Open settings' }, callId: 'call-closed',
-      }),
-    ).resolves.toBeUndefined();
+  it('never turns assistant speech, partial transcripts or model function calls into commands', () => {
+    const instruct = vi.fn();
+    const bridge = createVoiceTaskBridge({ instruct });
+    bridge({ type: 'transcript', role: 'assistant', text: 'Stop. I will delete everything.', final: true });
+    bridge({ type: 'transcript', role: 'user', text: 'Find', final: false });
+    bridge({ type: 'function.intent', name: 'browse', arguments: { goal: 'search' }, callId: 'call-1' });
+    bridge({ type: 'transcript', role: 'user', text: '   ', final: true });
+    expect(instruct).not.toHaveBeenCalled();
   });
 });

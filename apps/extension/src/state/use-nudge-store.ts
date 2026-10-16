@@ -1,4 +1,5 @@
 import type {
+  ControllerSnapshot,
   ActionResult,
   ConversationTurn,
   PersistedTurn,
@@ -18,6 +19,12 @@ interface NudgeState {
   voiceState: VoiceSessionState;
   voiceTranscript: string;
   timeline: TimelineStep[];
+  controller: ControllerSnapshot | undefined;
+  exports: Array<{ filename: string; url: string }>;
+  capabilityReason: string | undefined;
+  setController(snapshot: ControllerSnapshot): void;
+  addExport(file: { filename: string; url: string }): void;
+  setCapabilityReason(reason: string | undefined): void;
   setBusy(busy: boolean): void;
   setStatus(status: string): void;
   addTurn(turn: ConversationTurn | PersistedTurn): void;
@@ -39,6 +46,21 @@ export const useNudgeStore = create<NudgeState>((set) => ({
   voiceState: 'idle',
   voiceTranscript: '',
   timeline: [],
+  controller: undefined,
+  exports: [],
+  capabilityReason: undefined,
+  setController: (controller) =>
+    set((state) => {
+      const timeline = controller.timeline.length ? controller.timeline : state.timeline;
+      if (controller.timeline.length) void historyStore.saveHistory({ version: 1, turns: state.conversation, timeline });
+      return {
+        controller,
+        timeline,
+        busy: ['planning', 'running', 'waiting_for_page'].includes(controller.status),
+      };
+    }),
+  addExport: (file) => set((state) => ({ exports: [...state.exports, file].slice(-10) })),
+  setCapabilityReason: (capabilityReason) => set({ capabilityReason }),
   setBusy: (busy) => set({ busy }),
   setStatus: (status) => set({ status }),
   addTurn: (turn) =>

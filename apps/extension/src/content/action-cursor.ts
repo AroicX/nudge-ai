@@ -67,3 +67,21 @@ export async function showActionCursor(
     cursor.style.opacity = '0';
   }, 260);
 }
+
+export const ensureCursorForTest = ensureCursor;
+
+/** Move the agent cursor to the real dispatch point (viewport CSS pixels). */
+export async function moveCursorTo(document: Document, window: Window, x: number, y: number): Promise<void> {
+  const cursor = ensureCursor(document);
+  cursor.style.opacity = '1';
+  cursor.style.transform = `translate3d(${Math.round(x)}px,${Math.round(y)}px,0)`;
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 220));
+  window.setTimeout(() => {
+    cursor.style.opacity = '0';
+  }, 700);
+}
+
+export function hideCursor(document: Document): void {
+  const cursor = document.getElementById(CURSOR_ID);
+  if (cursor instanceof HTMLElement) cursor.style.opacity = '0';
+}

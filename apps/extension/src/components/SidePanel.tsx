@@ -1,4 +1,5 @@
 import type {
+  ControllerSnapshot,
   ActionResult,
   ConversationTurn,
   PersistedTurn,
@@ -15,7 +16,13 @@ import { ProviderSettings, type ProviderHealth } from './ProviderSettings';
 import { Status } from './Status';
 import { LiveTranscript } from './LiveTranscript';
 import { ExecutionTimeline } from './ExecutionTimeline';
-import type { ProviderFallbackRequest } from '../orchestration/provider-fallback';
+import { CapabilityPrompt } from './CapabilityPrompt';
+import { PreviewCard } from './PreviewCard';
+import { ReportCard } from './ReportCard';
+
+export interface ProviderFallbackRequest {
+  reason: string;
+}
 
 interface SidePanelProps {
   busy: boolean;
@@ -48,6 +55,14 @@ interface SidePanelProps {
   fallbackRequest?: ProviderFallbackRequest | undefined;
   onApproveFallback?: () => void;
   onDeclineFallback?: () => void;
+  controller?: ControllerSnapshot | undefined;
+  onConfirm?: (previewId: string, approved: boolean) => void;
+  onContinue?: () => void;
+  capabilityReason?: string | undefined;
+  onRetryCapability?: () => void;
+  onDismissCapability?: () => void;
+  exports?: Array<{ filename: string; url: string }>;
+  onExport?: (format: 'csv' | 'xlsx') => void;
 }
 
 export function SidePanel({
@@ -74,7 +89,16 @@ export function SidePanel({
   fallbackRequest,
   onApproveFallback = () => undefined,
   onDeclineFallback = () => undefined,
+  controller,
+  onConfirm = () => undefined,
+  onContinue = () => undefined,
+  capabilityReason,
+  onRetryCapability = () => undefined,
+  onDismissCapability = () => undefined,
+  exports = [],
+  onExport,
 }: SidePanelProps) {
+  const fallback = controller?.fallbackOffer ?? fallbackRequest;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string>();
   const [draft, setDraft] = useState('');
@@ -115,9 +139,45 @@ export function SidePanel({
       </header>
       <Status value={status} />
       <LiveTranscript text={voiceTranscript} />
-      {fallbackRequest ? (
+      {controller?.pendingPreview ? <PreviewCard preview={controller.pendingPreview} onConfirm={onConfirm} /> : null}
+      {controller?.status === 'paused' ? (
+        <section className="task-card task-card--paused" aria-label="Paused task">
+          <p>{controller.memorySummary.issues.at(-1) ?? 'Nudge paused this task.'}</p>
+          <div className="task-card__actions">
+            <button type="button" onClick={onContinue}>
+              Continue
+            </button>
+            <button type="button" className="secondary" onClick={onStop}>
+              Stop
+            </button>
+          </div>
+        </section>
+      ) : null}
+      {capabilityReason ? (
+        <CapabilityPrompt reason={capabilityReason} onRetry={onRetryCapability} onDismiss={onDismissCapability} />
+      ) : null}
+      {controller?.report ? <ReportCard report={controller.report} /> : null}
+      {(controller?.records ?? 0) > 0 && onExport ? (
+        <section className="task-card task-card--exports" aria-label="Collected records">
+          <p>{controller!.records} records collected.</p>
+          <div className="task-card__actions">
+            <button type="button" className="secondary" onClick={() => onExport('csv')}>
+              Download CSV
+            </button>
+            <button type="button" className="secondary" onClick={() => onExport('xlsx')}>
+              Download XLSX
+            </button>
+          </div>
+          {exports.map((file) => (
+            <a key={file.url} href={file.url} download={file.filename}>
+              {file.filename}
+            </a>
+          ))}
+        </section>
+      ) : null}
+      {fallback ? (
         <section className="fallback-request" aria-label="Provider approval">
-          <p>{fallbackRequest.reason}</p>
+          <p>{fallback.reason}</p>
           <div>
             <button type="button" onClick={onApproveFallback}>Use OpenAI for this task</button>
             <button type="button" className="secondary" onClick={onDeclineFallback}>Stop</button>

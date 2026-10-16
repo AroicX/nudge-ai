@@ -128,3 +128,43 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+.mailbox nav,
+.toolbar {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.mail-list article {
+  border-bottom: 1px solid #e3e6ee;
+  padding: 8px 0;
+}
+.grid {
+  display: grid;
+  gap: 1px;
+  background: #d6dae4;
+  width: max-content;
+}
+.grid-row {
+  display: grid;
+  grid-template-columns: repeat(5, 160px);
+  gap: 1px;
+}
+.grid [role='gridcell'] {
+  background: white;
+  min-height: 28px;
+  padding: 4px;
+}
+.canvas-text-input {
+  height: 1px;
+  left: -9999px;
+  opacity: 0;
+  position: fixed;
+  width: 1px;
+}
+.scroll-readout {
+  background: white;
+  position: fixed;
+  right: 12px;
+  top: 12px;
+}

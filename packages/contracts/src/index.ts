@@ -7,3 +7,7 @@ export * from './provider';
 export * from './provider-settings';
 export * from './task';
 export * from './voice';
+export * from './tools';
+export * from './observation';
+export * from './agent';
+export * from './controller-messages';

@@ -32,7 +32,6 @@ export function Composer({
   const voiceActive = !['idle', 'ended', 'failed'].includes(voiceState);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (busy) return;
     const value = draft.trim();
     if (!value) return;
     onSend(value);
@@ -47,7 +46,7 @@ export function Composer({
       <input
         id="nudge-message"
         aria-label="Tell Nudge what to do"
-        placeholder="Ask Nudge to do something"
+        placeholder={busy ? 'Change or add to the task' : 'Ask Nudge to do something'}
         autoComplete="off"
         value={draft}
         onChange={(event) => onDraftChange(event.target.value)}
@@ -81,14 +80,21 @@ export function Composer({
           </button>
         ) : null}
         {busy ? (
-          <button
-            type="button"
-            className="icon-button icon-button--send"
-            aria-label="Stop"
-            onClick={onStop}
-          >
-            <Square size={16} fill="currentColor" />
-          </button>
+          <>
+            {draft.trim() ? (
+              <button type="submit" className="icon-button icon-button--send" aria-label="Send update">
+                <Send size={18} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="icon-button icon-button--send"
+              aria-label="Stop"
+              onClick={onStop}
+            >
+              <Square size={16} fill="currentColor" />
+            </button>
+          </>
         ) : (
           <button
             type="submit"

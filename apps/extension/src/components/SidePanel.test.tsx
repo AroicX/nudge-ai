@@ -72,7 +72,7 @@ describe('SidePanel', () => {
     expect(progress.compareDocumentPosition(assistantMessage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('uses a single-line composer and prevents duplicate sends while work is active', () => {
+  it('uses a single-line composer and sends typed text as a task update while work is active', () => {
     const onSend = vi.fn();
     const onStop = vi.fn();
     render(
@@ -81,10 +81,10 @@ describe('SidePanel', () => {
     const input = screen.getByLabelText('Tell Nudge what to do');
     expect(input.tagName).toBe('INPUT');
     fireEvent.change(input, {
-      target: { value: 'Find an iPhone 16' },
+      target: { value: 'Only black ones' },
     });
     fireEvent.submit(screen.getByRole('form', { name: 'Message Nudge' }));
-    expect(onSend).not.toHaveBeenCalled();
+    expect(onSend).toHaveBeenCalledWith('Only black ones');
     expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     expect(onStop).toHaveBeenCalledOnce();

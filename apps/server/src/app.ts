@@ -6,11 +6,11 @@ import type { ProviderSelection } from '@nudge/contracts';
 
 import { pairingGuard } from './auth/pairing';
 import { loadConfig } from './config';
-import type { DecisionProviderFactory } from './providers/decision-provider';
-import { OpenAIDecisionProvider } from './providers/openai-provider';
-import { OllamaDecisionProvider } from './providers/ollama-provider';
-import { ProviderRouter } from './providers/provider-router';
-import { registerAgentStepRoute } from './routes/agent-step';
+import { registerAgentPlanRoutes } from './routes/agent-plan';
+import { OpenAIPlanner } from './planner/openai-planner';
+import { OllamaPlanner } from './planner/ollama-planner';
+import type { PlannerFactory } from './planner/planner-provider';
+import { ScriptedPlanner, type ScenarioFile } from './planner/scripted-planner';
 import {
   OpenAIAudioTranscriber,
   registerAudioTranscribeRoute,
@@ -27,13 +27,13 @@ import {
 
 export interface BuildAppOptions {
   env?: Record<string, string | undefined>;
-  providerFactory?: DecisionProviderFactory;
   requestTimeoutMs?: number;
   rateLimitMax?: number;
   bodyLimit?: number;
   logger?: boolean;
   realtimeIssuer?: RealtimeSessionIssuer;
   audioTranscriber?: AudioTranscriber;
+  plannerFactory?: PlannerFactory;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -50,9 +50,6 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   let sessionKey: string | undefined;
   let selection: ProviderSelection = { provider: 'openai' };
   const authenticate = pairingGuard(config.pairingSecret);
-  const providerFactory =
-    options.providerFactory ??
-    ((apiKey: string) => new OpenAIDecisionProvider(new OpenAI({ apiKey }), config.agentModel));
 
   void app.register(cors, {
     origin: (origin, callback) => {
@@ -76,23 +73,38 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       },
     });
     registerProviderHealthRoute(protectedRoutes, { authenticate });
-    const router = new ProviderRouter(
-      () => providerFactory(sessionKey ?? config.openAIApiKey),
-      (baseUrl, model) => new OllamaDecisionProvider(baseUrl, model),
-    );
-    registerAgentStepRoute(protectedRoutes, {
+    const scripted =
+      config.planner === 'scripted' && config.plannerScript ? ScriptedPlanner.fromPath(config.plannerScript) : undefined;
+    const plannerFactory: PlannerFactory = (providerOverride) => {
+      const apiKey = sessionKey ?? config.openAIApiKey;
+      if (options.plannerFactory) return options.plannerFactory(providerOverride, { apiKey });
+      if (scripted) return scripted;
+      const active = providerOverride === 'openai' ? { provider: 'openai' as const } : selection;
+      return active.provider === 'openai'
+        ? new OpenAIPlanner(new OpenAI({ apiKey }), config.agentModel)
+        : new OllamaPlanner(active.baseUrl, active.model);
+    };
+    registerAgentPlanRoutes(protectedRoutes, {
       authenticate,
-      providerFactory: (_apiKey, providerOverride) =>
-        router.create(providerOverride === 'openai' ? { provider: 'openai' } : selection),
-      getApiKey: () => sessionKey ?? config.openAIApiKey,
-      timeoutMs: options.requestTimeoutMs ?? 20_000,
-      rateLimitMax: options.rateLimitMax ?? 30,
+      plannerFactory,
+      timeoutMs: options.requestTimeoutMs ?? 30_000,
+      planRateLimit: options.rateLimitMax ?? (scripted ? 600 : 60),
+      scopeRateLimit: scripted ? 600 : 10,
     });
+    if (scripted) {
+      // Test-only hooks for the Playwright harness; never registered for live planners.
+      protectedRoutes.get('/api/test/planner-log', { preHandler: authenticate }, async () => scripted.log);
+      protectedRoutes.put('/api/test/scenarios', { preHandler: authenticate }, async (request) => {
+        scripted.replace(request.body as ScenarioFile);
+        return { ok: true };
+      });
+    }
     registerRealtimeSessionRoute(protectedRoutes, {
       authenticate,
       issuer: options.realtimeIssuer ?? new OpenAIRealtimeSessionIssuer(),
       getApiKey: () => sessionKey ?? config.openAIApiKey,
       model: config.realtimeModel,
+      transcribeModel: config.transcribeModel,
       timeoutMs: options.requestTimeoutMs ?? 20_000,
     });
     await registerAudioTranscribeRoute(protectedRoutes, {
