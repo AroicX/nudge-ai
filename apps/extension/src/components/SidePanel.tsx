@@ -63,6 +63,7 @@ interface SidePanelProps {
   onDismissCapability?: () => void;
   exports?: Array<{ filename: string; url: string }>;
   onExport?: (format: 'csv' | 'xlsx') => void;
+  onSelectTab?: (number: number) => void;
 }
 
 export function SidePanel({
@@ -76,6 +77,9 @@ export function SidePanel({
   onClearHistory,
   voiceState = 'idle',
   voiceTranscript = '',
+  voiceMuted = false,
+  onMuteVoice = () => undefined,
+  onInterruptVoice = () => undefined,
   onStartVoice = () => undefined,
   onEndVoice = () => undefined,
   onDictate = async () => '',
@@ -97,6 +101,7 @@ export function SidePanel({
   onDismissCapability = () => undefined,
   exports = [],
   onExport,
+  onSelectTab = () => undefined,
 }: SidePanelProps) {
   const fallback = controller?.fallbackOffer ?? fallbackRequest;
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -139,7 +144,9 @@ export function SidePanel({
       </header>
       <Status value={status} />
       <LiveTranscript text={voiceTranscript} />
-      {controller?.pendingPreview ? <PreviewCard preview={controller.pendingPreview} onConfirm={onConfirm} /> : null}
+      {controller?.pendingPreview ? (
+        <PreviewCard preview={controller.pendingPreview} onConfirm={onConfirm} />
+      ) : null}
       {controller?.status === 'paused' ? (
         <section className="task-card task-card--paused" aria-label="Paused task">
           <p>{controller.memorySummary.issues.at(-1) ?? 'Nudge paused this task.'}</p>
@@ -154,7 +161,11 @@ export function SidePanel({
         </section>
       ) : null}
       {capabilityReason ? (
-        <CapabilityPrompt reason={capabilityReason} onRetry={onRetryCapability} onDismiss={onDismissCapability} />
+        <CapabilityPrompt
+          reason={capabilityReason}
+          onRetry={onRetryCapability}
+          onDismiss={onDismissCapability}
+        />
       ) : null}
       {controller?.report ? <ReportCard report={controller.report} /> : null}
       {(controller?.records ?? 0) > 0 && onExport ? (
@@ -179,8 +190,37 @@ export function SidePanel({
         <section className="fallback-request" aria-label="Provider approval">
           <p>{fallback.reason}</p>
           <div>
-            <button type="button" onClick={onApproveFallback}>Use OpenAI for this task</button>
-            <button type="button" className="secondary" onClick={onDeclineFallback}>Stop</button>
+            <button type="button" onClick={onApproveFallback}>
+              Use OpenAI for this task
+            </button>
+            <button type="button" className="secondary" onClick={onDeclineFallback}>
+              Stop
+            </button>
+          </div>
+        </section>
+      ) : null}
+      {controller?.tabChoices?.length ? (
+        <section className="tab-picker" aria-label="Open browser tabs">
+          <p className="tab-picker__title">Choose a tab</p>
+          <div className="tab-picker__grid">
+            {controller.tabChoices.map((tab) => (
+              <button
+                type="button"
+                className="tab-choice"
+                key={`${tab.number}:${tab.tabId}`}
+                aria-label={`Tab ${tab.number}: ${tab.title}`}
+                onClick={() => onSelectTab(tab.number)}
+              >
+                <strong>{tab.number}</strong>
+                <span className="tab-choice__text">
+                  <span className="tab-choice__domain">
+                    {tab.favIconUrl ? <img src={tab.favIconUrl} alt="" /> : null}
+                    {tab.domain}
+                  </span>
+                  <small>{tab.title}</small>
+                </span>
+              </button>
+            ))}
           </div>
         </section>
       ) : null}
@@ -229,6 +269,9 @@ export function SidePanel({
       <Composer
         busy={busy}
         voiceState={voiceState}
+        voiceMuted={voiceMuted}
+        onMuteVoice={onMuteVoice}
+        onInterruptVoice={onInterruptVoice}
         draft={draft}
         showRealtimeVoice={showRealtimeVoice}
         dictating={dictating}

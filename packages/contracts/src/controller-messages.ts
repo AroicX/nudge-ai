@@ -10,6 +10,11 @@ import {
 import { TimelineStepSchema } from './history';
 import { ElementIdSchema, PageSnapshotSchema } from './page';
 import { DomToolCallSchema, RepeatActionSchema } from './tools';
+import { TabReferenceSchema } from './browser-context';
+
+const TabChoiceSchema = TabReferenceSchema.extend({
+  number: z.number().int().positive().max(999),
+}).strict();
 
 export const ControllerSnapshotSchema = z
   .object({
@@ -18,16 +23,24 @@ export const ControllerSnapshotSchema = z
     goal: z.string().max(4_000).optional(),
     plan: z.array(PlanItemSchema).max(40),
     memorySummary: z
-      .object({ recordCount: z.number().int().nonnegative(), issues: z.array(z.string().max(1_000)).max(30) })
+      .object({
+        recordCount: z.number().int().nonnegative(),
+        issues: z.array(z.string().max(1_000)).max(30),
+      })
       .strict(),
     pendingPreview: OperationPreviewSchema.optional(),
     pendingQuestion: z.string().max(1_000).optional(),
+    tabChoices: z.array(TabChoiceSchema).max(100).optional(),
+    sources: z.array(TabReferenceSchema).max(100).optional(),
     report: FinalReportSchema.optional(),
     capability: z.enum(['dom_only', 'dom_plus_trusted_input']),
     authorization: AuthorizationRecordSchema.optional(),
     timeline: z.array(TimelineStepSchema).max(100),
     statusText: z.string().max(500).optional(),
-    fallbackOffer: z.object({ reason: z.string().min(1).max(1_000) }).strict().optional(),
+    fallbackOffer: z
+      .object({ reason: z.string().min(1).max(1_000) })
+      .strict()
+      .optional(),
     records: z.number().int().nonnegative().optional(),
   })
   .strict();
@@ -42,11 +55,22 @@ export const PanelMessageSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z
-    .object({ type: z.literal('control'), action: z.enum(['stop', 'pause', 'resume', 'continue_budget']) })
+    .object({
+      type: z.literal('control'),
+      action: z.enum(['stop', 'pause', 'resume', 'continue_budget']),
+    })
     .strict(),
-  z.object({ type: z.literal('confirm'), previewId: z.string().min(1).max(120), approved: z.boolean() }).strict(),
+  z
+    .object({
+      type: z.literal('confirm'),
+      previewId: z.string().min(1).max(120),
+      approved: z.boolean(),
+    })
+    .strict(),
   z.object({ type: z.literal('answer'), text: z.string().min(1).max(4_000) }).strict(),
-  z.object({ type: z.literal('capability_granted'), capability: z.literal('trusted_input') }).strict(),
+  z
+    .object({ type: z.literal('capability_granted'), capability: z.literal('trusted_input') })
+    .strict(),
   z.object({ type: z.literal('request_export'), format: z.enum(['csv', 'xlsx']) }).strict(),
   z.object({ type: z.literal('hello') }).strict(),
   z.object({ type: z.literal('approve_fallback'), approved: z.boolean() }).strict(),
@@ -96,7 +120,13 @@ export const ContentRequestSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('timed_stop'), repeatId: z.string().min(1).max(120) }).strict(),
-  z.object({ type: z.literal('otp_extract'), service: z.string().min(1).max(120), now: z.number().int() }).strict(),
+  z
+    .object({
+      type: z.literal('otp_extract'),
+      service: z.string().min(1).max(120),
+      now: z.number().int(),
+    })
+    .strict(),
   z
     .object({
       type: z.literal('otp_enter'),
@@ -126,7 +156,10 @@ export const ContentResultSchema = z
         autocomplete: z.string().max(80).optional(),
         codeLike: z.boolean().optional(),
         formHasSensitiveField: z.boolean().optional(),
-        rect: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }).strict().optional(),
+        rect: z
+          .object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),
@@ -134,7 +167,10 @@ export const ContentResultSchema = z
     otp: z
       .object({
         status: z.enum(['found', 'ambiguous', 'none', 'stale']),
-        envelopeCode: z.string().regex(/^\d{4,8}$/).optional(),
+        envelopeCode: z
+          .string()
+          .regex(/^\d{4,8}$/)
+          .optional(),
         acceptedLength: z.number().int().nonnegative().optional(),
       })
       .strict()

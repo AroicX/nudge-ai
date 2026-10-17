@@ -82,9 +82,7 @@ describe('TabRegistry', () => {
   });
 
   it('does not trust a reused tab ID whose URL changed', async () => {
-    const tabs = api([
-      { id: 8, windowId: 1, active: true, url: 'https://old.test', title: 'Old' },
-    ]);
+    const tabs = api([{ id: 8, windowId: 1, active: true, url: 'https://old.test', title: 'Old' }]);
     const registry = new TabRegistry(tabs, now);
     const [source] = await registry.list();
     tabs.query.mockResolvedValueOnce([
@@ -105,5 +103,19 @@ describe('TabRegistry', () => {
     });
     await expect(registry.open('chrome://settings')).rejects.toThrow('HTTP');
     expect(tabs.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for Chrome to populate a newly-created tab URL', async () => {
+    const tabs = api([]);
+    tabs.create.mockResolvedValueOnce({ id: 51, windowId: 4, active: true } as never);
+    tabs.query.mockResolvedValueOnce([
+      { id: 51, windowId: 4, active: true, url: 'https://github.com/', title: 'GitHub' },
+    ]);
+    const registry = new TabRegistry(tabs, now);
+
+    await expect(registry.open('https://github.com')).resolves.toMatchObject({
+      tabId: 51,
+      url: 'https://github.com/',
+    });
   });
 });

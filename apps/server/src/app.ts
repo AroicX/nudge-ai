@@ -6,6 +6,8 @@ import type { ProviderSelection } from '@nudge/contracts';
 
 import { pairingGuard } from './auth/pairing';
 import { loadConfig } from './config';
+import { LocalVoiceService } from './voice/local-voice';
+import { registerLocalVoiceRoutes } from './routes/local-voice';
 import { registerAgentPlanRoutes } from './routes/agent-plan';
 import { OpenAIPlanner } from './planner/openai-planner';
 import { OllamaPlanner } from './planner/ollama-planner';
@@ -34,6 +36,7 @@ export interface BuildAppOptions {
   realtimeIssuer?: RealtimeSessionIssuer;
   audioTranscriber?: AudioTranscriber;
   plannerFactory?: PlannerFactory;
+  localVoice?: LocalVoiceService;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -113,6 +116,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       getApiKey: () => sessionKey ?? config.openAIApiKey,
       model: config.transcribeModel,
       timeoutMs: options.requestTimeoutMs ?? 20_000,
+    });
+    registerLocalVoiceRoutes(protectedRoutes, {
+      authenticate,
+      service: options.localVoice ?? new LocalVoiceService(config.pairingSecret),
+      timeoutMs: options.requestTimeoutMs ?? 90_000,
     });
   });
 

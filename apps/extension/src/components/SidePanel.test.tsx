@@ -68,8 +68,12 @@ describe('SidePanel', () => {
     const progress = screen.getByRole('region', { name: 'Action progress' });
     const assistantMessage = screen.getByText('I found one').closest('article')!;
 
-    expect(userMessage.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(progress.compareDocumentPosition(assistantMessage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      userMessage.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      progress.compareDocumentPosition(assistantMessage) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it('uses a single-line composer and sends typed text as a task update while work is active', () => {
@@ -235,6 +239,46 @@ describe('SidePanel', () => {
       screen.getByRole('button', { name: 'Open Netflix payment reminder on mail.google.com' }),
     );
     expect(onOpenSource).toHaveBeenCalledWith(expect.objectContaining({ tabId: 3 }));
+  });
+
+  it('shows stable numbered tab choices and selects one by its number', () => {
+    const onSelectTab = vi.fn();
+    render(
+      <SidePanel
+        busy={false}
+        controller={{
+          status: 'waiting_for_user',
+          plan: [],
+          memorySummary: { recordCount: 0, issues: [] },
+          capability: 'dom_only',
+          timeline: [],
+          pendingQuestion: 'Which tab should I use?',
+          tabChoices: [
+            {
+              number: 5,
+              tabId: 22,
+              windowId: 1,
+              active: false,
+              url: 'https://mail.google.com/mail/u/0/',
+              title: 'Inbox - person@example.com - Gmail',
+              domain: 'mail.google.com',
+              discarded: false,
+              lastSeenAt: '2026-10-16T00:00:00.000Z',
+            },
+          ],
+        }}
+        onSelectTab={onSelectTab}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('5')).toBeTruthy();
+    expect(screen.getByText('mail.google.com')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Tab 5.*Gmail/i }));
+    expect(onSelectTab).toHaveBeenCalledWith(5);
   });
 
   it('selects Ollama, shows empty-model guidance, and keeps dictation without realtime voice', () => {

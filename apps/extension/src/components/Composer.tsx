@@ -1,5 +1,5 @@
 import type { VoiceSessionState } from '@nudge/contracts';
-import { AudioLines, Mic, Send, Square, X } from 'lucide-react';
+import { AudioLines, Mic, MicOff, Send, Square, X } from 'lucide-react';
 import { type FormEvent } from 'react';
 
 import { VoiceWaveform } from './VoiceWaveform';
@@ -16,6 +16,9 @@ export function Composer({
   onStop,
   onStartVoice,
   onEndVoice,
+  voiceMuted = false,
+  onMuteVoice,
+  onInterruptVoice,
 }: {
   busy: boolean;
   voiceState: VoiceSessionState;
@@ -28,6 +31,9 @@ export function Composer({
   onStop(): void;
   onStartVoice(): void;
   onEndVoice(): void;
+  voiceMuted?: boolean;
+  onMuteVoice?: () => void;
+  onInterruptVoice?: () => void;
 }) {
   const voiceActive = !['idle', 'ended', 'failed'].includes(voiceState);
   const submit = (event: FormEvent) => {
@@ -52,11 +58,14 @@ export function Composer({
         onChange={(event) => onDraftChange(event.target.value)}
       />
       <div className="composer__actions">
+        {voiceActive && onMuteVoice ? <button type="button" className="icon-button icon-button--quiet" aria-label={voiceMuted ? 'Unmute voice call' : 'Mute voice call'} aria-pressed={voiceMuted} onClick={onMuteVoice}>{voiceMuted ? <MicOff size={18} /> : <Mic size={18} />}</button> : null}
+        {voiceActive && voiceState === 'assistant-speaking' && onInterruptVoice ? <button type="button" className="icon-button icon-button--quiet" aria-label="Interrupt reply" onClick={onInterruptVoice}><Square size={15} /></button> : null}
         <button
           type="button"
           className={`icon-button icon-button--quiet${dictating ? ' is-recording' : ''}`}
           aria-label={dictating ? 'Finish dictation' : 'Dictate message'}
           onClick={onDictate}
+          disabled={voiceActive}
         >
           {dictating ? <Square size={15} fill="currentColor" /> : <Mic size={18} />}
         </button>

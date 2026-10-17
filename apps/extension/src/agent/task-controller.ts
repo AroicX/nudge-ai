@@ -53,7 +53,14 @@ import {
   type TaskEvent,
 } from '@nudge/core';
 
-import type { CdpPort, CheckpointPort, ContentPort, PlannerPort, ScreenshotPort, TabsPort } from './ports';
+import type {
+  CdpPort,
+  CheckpointPort,
+  ContentPort,
+  PlannerPort,
+  ScreenshotPort,
+  TabsPort,
+} from './ports';
 
 export interface OtpTransferPort {
   transfer(input: {
@@ -102,6 +109,8 @@ interface Task {
   lastPreview?: OperationPreview | undefined;
   confirmation?: Confirmation | undefined;
   pendingQuestion?: string | undefined;
+  tabChoices?: Array<TabReference & { number: number }> | undefined;
+  sources: Map<string, TabReference>;
   fallbackOffer?: { reason: string } | undefined;
   useOpenAI: boolean;
   report?: FinalReport | undefined;
@@ -136,7 +145,10 @@ function selection(snapshot: PageSnapshot | undefined): string[] {
 }
 
 function describeCall(call: ToolCall, snapshot?: PageSnapshot): string {
-  const target = 'elementId' in call && call.elementId ? snapshot?.elements.find((element) => element.id === call.elementId) : undefined;
+  const target =
+    'elementId' in call && call.elementId
+      ? snapshot?.elements.find((element) => element.id === call.elementId)
+      : undefined;
   const name = target?.name ?? target?.text;
   switch (call.tool) {
     case 'click':
@@ -188,7 +200,13 @@ export class TaskController {
   snapshot(): ControllerSnapshot {
     const task = this.#task;
     if (!task) {
-      return { status: 'idle', plan: [], memorySummary: { recordCount: 0, issues: [] }, capability: this.#capability, timeline: [] };
+      return {
+        status: 'idle',
+        plan: [],
+        memorySummary: { recordCount: 0, issues: [] },
+        capability: this.#capability,
+        timeline: [],
+      };
     }
     return {
       taskId: task.id,
@@ -198,6 +216,8 @@ export class TaskController {
       memorySummary: { recordCount: task.records.list().length, issues: task.memory.issues },
       ...(task.pendingPreview ? { pendingPreview: task.pendingPreview } : {}),
       ...(task.pendingQuestion ? { pendingQuestion: task.pendingQuestion } : {}),
+      ...(task.tabChoices?.length ? { tabChoices: task.tabChoices } : {}),
+      ...(task.sources.size ? { sources: [...task.sources.values()].slice(-100) } : {}),
       ...(task.report ? { report: task.report } : {}),
       ...(task.fallbackOffer ? { fallbackOffer: task.fallbackOffer } : {}),
       capability: this.#capability,
@@ -224,6 +244,14 @@ export class TaskController {
       await this.#start(text, originTabId);
       return;
     }
+    if (
+      task.status === 'waiting_for_user' &&
+      task.tabChoices?.length &&
+      classified.kind === 'correction'
+    ) {
+      await this.#start(text, originTabId);
+      return;
+    }
     switch (classified.kind) {
       case 'stop':
         await this.#cancel('Stopped at your request.');
@@ -238,16 +266,20 @@ export class TaskController {
         this.#scheduler.bumpGeneration();
         task.memory = applyPlanUpdate(
           task.memory,
-          task.memory.plan.map((item) => (item.status === 'active' ? { ...item, status: 'skipped' } : item)),
+          task.memory.plan.map((item) =>
+            item.status === 'active' ? { ...item, status: 'skipped' } : item,
+          ),
         );
-        task.notes.push(`User (${source}) asked to skip the current item; move on to the next one.`);
+        task.notes.push(
+          `User (${source}) asked to skip the current item; move on to the next one.`,
+        );
         this.#resumeIfWaiting();
         return;
       case 'confirm':
         if (task.pendingPreview) this.confirm(task.pendingPreview.previewId, classified.approved);
         return;
       case 'tab_correction':
-        await this.#tabCorrection(classified.tabId, classified.text);
+        await this.#tabCorrection(classified.tabId, classified.tabIndex, classified.text);
         return;
       case 'correction':
       case 'new_task':
@@ -283,17 +315,26 @@ export class TaskController {
 
   confirm(previewId: string, approved: boolean): void {
     const task = this.#task;
-    if (!task || task.status !== 'waiting_for_confirmation' || task.pendingPreview?.previewId !== previewId) return;
+    if (
+      !task ||
+      task.status !== 'waiting_for_confirmation' ||
+      task.pendingPreview?.previewId !== previewId
+    )
+      return;
     const preview = task.pendingPreview;
     task.pendingPreview = undefined;
     if (approved) {
       task.confirmation = bindConfirmation(preview, this.#scheduler.generation);
-      task.notes.push(`User confirmed: ${preview.operation} (${preview.count} items). Proceed with exactly that operation.`);
+      task.notes.push(
+        `User confirmed: ${preview.operation} (${preview.count} items). Proceed with exactly that operation.`,
+      );
       this.#set('confirmed');
     } else {
       task.confirmation = undefined;
       task.skipped.push({ item: preview.operation, reason: 'You declined the preview.' });
-      task.notes.push(`User declined: ${preview.operation}. Do not perform it; continue or report what remains.`);
+      task.notes.push(
+        `User declined: ${preview.operation}. Do not perform it; continue or report what remains.`,
+      );
       this.#set('declined');
     }
     task.snapshotFresh = false;
@@ -304,7 +345,12 @@ export class TaskController {
     const task = this.#task;
     if (!task || task.status !== 'waiting_for_user') return;
     task.pendingQuestion = undefined;
-    task.memory = addConstraint(task.memory, `User answered: ${text}`, this.#scheduler.instructionVersion);
+    task.tabChoices = undefined;
+    task.memory = addConstraint(
+      task.memory,
+      `User answered: ${text}`,
+      this.#scheduler.instructionVersion,
+    );
     task.authorization = extendAuthorization(task.authorization, text);
     task.notes.push(`User answered: ${text}`);
     task.snapshotFresh = false;
@@ -322,7 +368,10 @@ export class TaskController {
     task.fallbackOffer = undefined;
     task.pendingQuestion = undefined;
     if (!approved) {
-      void this.#finishTask('failed', 'OpenAI fallback was not approved, so the task stopped before acting.');
+      void this.#finishTask(
+        'failed',
+        'OpenAI fallback was not approved, so the task stopped before acting.',
+      );
       return;
     }
     task.useOpenAI = true;
@@ -360,7 +409,10 @@ export class TaskController {
     const checkpoint = await this.deps.checkpoints.load();
     if (!checkpoint || isTerminal(checkpoint.status)) return;
     const restored = restoreCheckpoint(checkpoint);
-    const records = RecordStore.from({ fields: checkpoint.memory.recordFields, records: checkpoint.records });
+    const records = RecordStore.from({
+      fields: checkpoint.memory.recordFields,
+      records: checkpoint.records,
+    });
     this.#scheduler = new ActionScheduler(this.deps.clock);
     this.#task = this.#newTask({
       id: checkpoint.taskId,
@@ -368,10 +420,15 @@ export class TaskController {
       memory: restored.memory,
       authorization: checkpoint.authorization,
       records,
-      boundTabId: checkpoint.boundTabId ?? checkpoint.memory.tabs.find((tab) => tab.role === 'origin')?.tabId ?? 0,
+      boundTabId:
+        checkpoint.boundTabId ??
+        checkpoint.memory.tabs.find((tab) => tab.role === 'origin')?.tabId ??
+        0,
       status: 'paused',
     });
-    this.#task.notes.push('Nudge restarted. Re-check the page; do not repeat an action whose outcome is uncertain without verifying it first.');
+    this.#task.notes.push(
+      'Nudge restarted. Re-check the page; do not repeat an action whose outcome is uncertain without verifying it first.',
+    );
     this.#watchTabs(this.#task);
     await this.#checkpoint(this.#task);
     this.#broadcast();
@@ -399,6 +456,7 @@ export class TaskController {
       notes: [],
       repeatNotes: 0,
       observedUrls: new Set(),
+      sources: new Map(),
       userTypedUrls: input.instruction.match(URL_IN_TEXT) ?? [],
       skipped: [],
       exports: [],
@@ -414,8 +472,17 @@ export class TaskController {
     const id = this.deps.id?.() ?? `task_${crypto.randomUUID()}`;
     this.#scheduler = new ActionScheduler(this.deps.clock);
     const tabs = await this.deps.tabs.list();
-    const origin = tabs.find((tab) => tab.tabId === originTabId) ?? tabs.find((tab) => tab.active) ?? tabs[0];
-    const placeholder: AuthorizationRecord = { taskId: id, instruction, origins: [], categories: ['read', 'navigate'], destinations: [], exclusions: [], limits: {} };
+    const origin =
+      tabs.find((tab) => tab.tabId === originTabId) ?? tabs.find((tab) => tab.active) ?? tabs[0];
+    const placeholder: AuthorizationRecord = {
+      taskId: id,
+      instruction,
+      origins: [],
+      categories: ['read', 'navigate'],
+      destinations: [],
+      exclusions: [],
+      limits: {},
+    };
     const task = this.#newTask({
       id,
       instruction,
@@ -439,7 +506,11 @@ export class TaskController {
     this.#planAbort = abort;
     try {
       const scope = await this.deps.planner.scope(
-        { requestId: crypto.randomUUID(), instruction, tabs: tabs.map(({ tabId, title, url }) => ({ tabId, title, url })) },
+        {
+          requestId: crypto.randomUUID(),
+          instruction,
+          tabs: tabs.map(({ tabId, title, url }) => ({ tabId, title, url })),
+        },
         abort.signal,
         this.#providerOverride(task),
       );
@@ -454,7 +525,10 @@ export class TaskController {
     } catch (error) {
       if (this.#task !== task || isTerminal(task.status)) return;
       if (this.#offerFallback(task, error)) return;
-      await this.#finishTask('failed', error instanceof Error ? error.message : 'Nudge could not understand the request.');
+      await this.#finishTask(
+        'failed',
+        error instanceof Error ? error.message : 'Nudge could not understand the request.',
+      );
     }
   }
 
@@ -468,17 +542,26 @@ export class TaskController {
           this.#scheduler.bumpGeneration();
           if (task.timedRepeatId) {
             task.timedRepeatId = undefined;
-            void this.#finishTask('completed', 'The tab was closed, so the repeated action stopped.');
+            void this.#finishTask(
+              'completed',
+              'The tab was closed, so the repeated action stopped.',
+            );
           }
         }
       }),
       this.deps.tabs.onUpdated((tabId, info) => {
-        if (this.#task !== task || tabId !== task.boundTabId || !info.url || !task.timedRepeatId) return;
+        if (this.#task !== task || tabId !== task.boundTabId || !info.url || !task.timedRepeatId)
+          return;
         try {
           const origin = new URL(info.url).origin;
           const original = task.memory.tabs.find((tab) => tab.tabId === tabId)?.origin;
           if (original && origin !== original) {
-            void this.#stopTimed(task).then(() => this.#finishTask('completed', 'The page navigated away, so the repeated action stopped.'));
+            void this.#stopTimed(task).then(() =>
+              this.#finishTask(
+                'completed',
+                'The page navigated away, so the repeated action stopped.',
+              ),
+            );
           }
         } catch {
           /* ignore */
@@ -505,7 +588,9 @@ export class TaskController {
     if (!task.timedRepeatId) return;
     const repeatId = task.timedRepeatId;
     task.timedRepeatId = undefined;
-    await this.deps.content.send(task.boundTabId, { type: 'timed_stop', repeatId }).catch(() => undefined);
+    await this.deps.content
+      .send(task.boundTabId, { type: 'timed_stop', repeatId })
+      .catch(() => undefined);
   }
 
   async #finishTask(outcome: FinalReport['outcome'], summary: string): Promise<void> {
@@ -516,12 +601,21 @@ export class TaskController {
     const report = buildReport(task.memory, task.records.list(), outcome, summary, task.exports);
     report.skipped = [...report.skipped, ...task.skipped].slice(-100);
     if (outcome === 'partially_completed') {
-      report.partial = [...report.partial, ...task.memory.issues.filter((issue) => /could not|inaccessible/i.test(issue))].slice(-100);
+      report.partial = [
+        ...report.partial,
+        ...task.memory.issues.filter((issue) => /could not|inaccessible/i.test(issue)),
+      ].slice(-100);
     }
     task.report = report;
     task.pendingPreview = undefined;
     task.pendingQuestion = undefined;
-    const event: TaskEvent = { completed: 'finish', partially_completed: 'partial', failed: 'fail', cancelled: 'cancel' }[outcome] as TaskEvent;
+    task.tabChoices = undefined;
+    const event: TaskEvent = {
+      completed: 'finish',
+      partially_completed: 'partial',
+      failed: 'fail',
+      cancelled: 'cancel',
+    }[outcome] as TaskEvent;
     task.status = transition(task.status, event);
     this.#timeline(task, 'final', summary, outcome === 'failed' ? 'error' : 'completed');
     this.#teardown(task);
@@ -548,7 +642,10 @@ export class TaskController {
       } catch (error) {
         const task = this.#task;
         if (task && !isTerminal(task.status)) {
-          await this.#finishTask('failed', error instanceof Error ? error.message : 'Nudge hit an unexpected error.');
+          await this.#finishTask(
+            'failed',
+            error instanceof Error ? error.message : 'Nudge hit an unexpected error.',
+          );
         }
       } finally {
         this.#loop = undefined;
@@ -559,13 +656,20 @@ export class TaskController {
   async #iterate(task: Task): Promise<void> {
     if (this.#scheduler.budgetExceeded(this.deps.limits ?? DEFAULT_BUDGET)) {
       this.#set('budget_reached');
-      this.deps.emit({ type: 'milestone', text: 'I reached this run’s step budget. Say continue to keep going.' });
+      this.deps.emit({
+        type: 'milestone',
+        text: 'I reached this run’s step budget. Say continue to keep going.',
+      });
       return;
     }
     const ticket = this.#scheduler.ticket;
     task.tabs = await this.deps.tabs.list();
     if (task.boundTabClosed || !task.tabs.some((tab) => tab.tabId === task.boundTabId)) {
-      this.#askUser(task, 'The tab I was working in was closed. Which tab should I use?');
+      this.#askForTab(
+        task,
+        'The tab I was working in was closed. Which tab should I use?',
+        task.tabs,
+      );
       return;
     }
 
@@ -587,7 +691,12 @@ export class TaskController {
       throw error;
     }
     if (!this.#scheduler.isCurrent(ticket) || task.status !== 'running') {
-      this.#timeline(task, `plan_${task.stepCount}`, 'Discarded a step planned before your change', 'completed');
+      this.#timeline(
+        task,
+        `plan_${task.stepCount}`,
+        'Discarded a step planned before your change',
+        'completed',
+      );
       return;
     }
     task.timeline = task.timeline.filter((item) => item.id !== `${task.id}:plan_${task.stepCount}`);
@@ -597,7 +706,8 @@ export class TaskController {
       task.memory = applyPlanUpdate(task.memory, response.planUpdate);
       for (const item of response.planUpdate) {
         const previous = before.find((candidate) => candidate.id === item.id);
-        if (item.status === 'done' && previous?.status !== 'done') this.deps.emit({ type: 'milestone', text: item.text });
+        if (item.status === 'done' && previous?.status !== 'done')
+          this.deps.emit({ type: 'milestone', text: item.text });
       }
     }
     await this.#dispatch(task, response, observation);
@@ -608,7 +718,21 @@ export class TaskController {
   async #observe(task: Task): Promise<Observation | null> {
     if (!task.snapshotFresh || !task.snapshot) {
       const snapshot = await this.#readPage(task.boundTabId);
-      if (!snapshot) throw new Error('Nudge could not read the page.');
+      if (!snapshot) {
+        task.tabs = await this.deps.tabs.list();
+        const alternatives = task.tabs.filter((tab) => tab.tabId !== task.boundTabId);
+        if (alternatives.length) {
+          this.#askForTab(
+            task,
+            'I could not read this page. Choose another tab, or reload this page and try again.',
+            alternatives,
+          );
+          return null;
+        }
+        throw new Error(
+          'Nudge could not read this page. Reload it and try again. Chrome blocks extension access on some internal pages.',
+        );
+      }
       this.#noteSnapshot(task, snapshot);
     }
     task.snapshotFresh = false;
@@ -617,13 +741,17 @@ export class TaskController {
     if (task.wantScreenshot) {
       task.wantScreenshot = false;
       if (!this.deps.capabilities().vision) {
-        task.notes.push('Screenshots are unavailable: the selected model cannot see images. Use DOM tools or report the limitation.');
+        task.notes.push(
+          'Screenshots are unavailable: the selected model cannot see images. Use DOM tools or report the limitation.',
+        );
       } else {
         try {
           screenshot = await this.deps.screenshots.capture(task.boundTabId, snapshot);
           task.frame = screenshot.frame;
         } catch (error) {
-          task.notes.push(`Screenshot failed: ${error instanceof Error ? error.message : 'unknown error'}.`);
+          task.notes.push(
+            `Screenshot failed: ${error instanceof Error ? error.message : 'unknown error'}.`,
+          );
         }
       }
     }
@@ -639,7 +767,7 @@ export class TaskController {
       } catch {
         /* page still loading; retry */
       }
-      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
     }
     return undefined;
   }
@@ -648,8 +776,23 @@ export class TaskController {
     task.snapshot = snapshot;
     for (const element of snapshot.elements) if (element.href) task.observedUrls.add(element.href);
     task.observedUrls.add(snapshot.url);
+    task.memory = addSource(task.memory, snapshot.url);
+    const current = task.tabs.find((tab) => tab.tabId === task.boundTabId);
+    if (current) {
+      const parsed = new URL(snapshot.url);
+      task.sources.set(snapshot.url, {
+        ...current,
+        url: snapshot.url,
+        title: snapshot.title || current.title,
+        domain: parsed.hostname,
+        lastSeenAt: new Date(this.deps.clock()).toISOString(),
+      });
+    }
     if (snapshot.inaccessible.includes('canvas')) {
-      task.memory = addIssue(task.memory, 'Part of this page is a canvas that could not be read as page structure.');
+      task.memory = addIssue(
+        task.memory,
+        'Part of this page is a canvas that could not be read as page structure.',
+      );
     }
   }
 
@@ -675,14 +818,21 @@ export class TaskController {
       observation,
       tabs: task.tabs,
       ...(task.lastResult ? { lastResult: task.lastResult } : {}),
-      capabilities: { vision: this.deps.capabilities().vision, trustedInput: this.#capability === 'dom_plus_trusted_input' },
+      capabilities: {
+        vision: this.deps.capabilities().vision,
+        trustedInput: this.#capability === 'dom_plus_trusted_input',
+      },
       notes: notes.map((note) => note.slice(0, 1_000)).slice(-20),
     };
   }
 
   // ───────────────────────── dispatch ─────────────────────────
 
-  async #dispatch(task: Task, response: PlannerResponse, observation: Observation | null): Promise<void> {
+  async #dispatch(
+    task: Task,
+    response: PlannerResponse,
+    observation: Observation | null,
+  ): Promise<void> {
     const call = response.toolCall;
     const label = describeCall(call, task.snapshot);
     const stepId = `step_${task.stepCount}`;
@@ -705,8 +855,15 @@ export class TaskController {
       case 'wait_for': {
         const policy = this.#policy(task, call, response);
         if (policy.decision !== 'allow') return this.#handlePolicy(task, call, policy, label);
-        const result = await this.deps.content.send(task.boundTabId, { type: 'execute', call, documentId: task.snapshot!.documentId, generation: this.#scheduler.generation });
-        const detail = result.text ? `Text (untrusted): ${result.text.slice(0, 1_800)}` : result.detail;
+        const result = await this.deps.content.send(task.boundTabId, {
+          type: 'execute',
+          call,
+          documentId: task.snapshot!.documentId,
+          generation: this.#scheduler.generation,
+        });
+        const detail = result.text
+          ? `Text (untrusted): ${result.text.slice(0, 1_800)}`
+          : result.detail;
         task.lastResult = { tool: call.tool, ok: result.ok, detail: detail.slice(0, 2_000) };
         return;
       }
@@ -719,46 +876,92 @@ export class TaskController {
       case 'record_items': {
         const snapshot = task.snapshot;
         const evidence = {
-          texts: [...(snapshot?.text ?? []), ...(snapshot?.elements ?? []).flatMap((element) => [element.name ?? '', element.text ?? ''])],
+          texts: [
+            ...(snapshot?.text ?? []),
+            ...(snapshot?.elements ?? []).flatMap((element) => [
+              element.name ?? '',
+              element.text ?? '',
+            ]),
+          ],
           hrefs: [...task.observedUrls],
-          values: (snapshot?.elements ?? []).flatMap((element) => (element.value ? [element.value] : [])),
+          values: (snapshot?.elements ?? []).flatMap((element) =>
+            element.value ? [element.value] : [],
+          ),
         };
         let added = 0;
         let unknown = 0;
         for (const record of call.records) {
           const outcome = task.records.add(
-            { fields: recordFieldsToObject(record.fields), sourceUrl: record.sourceUrl, observedAt: new Date(this.deps.clock()).toISOString() },
+            {
+              fields: recordFieldsToObject(record.fields),
+              sourceUrl: record.sourceUrl,
+              observedAt: new Date(this.deps.clock()).toISOString(),
+            },
             evidence,
           );
           if (outcome.added) added += 1;
-          unknown += Object.values(outcome.record.fields).filter((value) => value === 'unknown').length;
+          unknown += Object.values(outcome.record.fields).filter(
+            (value) => value === 'unknown',
+          ).length;
           if (snapshot) task.memory = addSource(task.memory, snapshot.url);
         }
         task.memory = { ...task.memory, recordCount: task.records.list().length };
-        task.memory = appendStep(task.memory, { tool: call.tool, summary: `Recorded ${added} new items (${call.records.length - added} duplicates)`, ok: true, evidence: `${unknown} fields not shown on the page were stored as unknown` });
-        task.lastResult = { tool: call.tool, ok: true, detail: `Recorded ${added} new, ${call.records.length - added} duplicates; ${unknown} unsupported fields stored as unknown.` };
+        task.memory = appendStep(task.memory, {
+          tool: call.tool,
+          summary: `Recorded ${added} new items (${call.records.length - added} duplicates)`,
+          ok: true,
+          evidence: `${unknown} fields not shown on the page were stored as unknown`,
+        });
+        task.lastResult = {
+          tool: call.tool,
+          ok: true,
+          detail: `Recorded ${added} new, ${call.records.length - added} duplicates; ${unknown} unsupported fields stored as unknown.`,
+        };
         this.#timeline(task, stepId, `Recorded ${added} items`, 'completed');
         return;
       }
       case 'export_records':
         this.#export(task, call.format);
-        task.lastResult = { tool: call.tool, ok: true, detail: `Prepared ${call.format.toUpperCase()} download.` };
+        task.lastResult = {
+          tool: call.tool,
+          ok: true,
+          detail: `Prepared ${call.format.toUpperCase()} download.`,
+        };
         return;
       case 'finish': {
-        const pending = task.memory.plan.some((item) => item.status === 'pending' || item.status === 'active');
+        const pending = task.memory.plan.some(
+          (item) => item.status === 'pending' || item.status === 'active',
+        );
         const inaccessible = task.memory.issues.some((issue) => /could not be read/i.test(issue));
         if (task.snapshot) task.memory = addSource(task.memory, task.snapshot.url);
-        task.memory = appendStep(task.memory, { tool: 'finish', summary: call.summary.slice(0, 1_000), ok: true, ...(call.evidence[0] ? { evidence: call.evidence.join('; ').slice(0, 1_000) } : {}) });
-        await this.#finishTask(pending || inaccessible ? 'partially_completed' : 'completed', call.summary);
+        task.memory = appendStep(task.memory, {
+          tool: 'finish',
+          summary: call.summary.slice(0, 1_000),
+          ok: true,
+          ...(call.evidence[0] ? { evidence: call.evidence.join('; ').slice(0, 1_000) } : {}),
+        });
+        await this.#finishTask(
+          pending || inaccessible ? 'partially_completed' : 'completed',
+          call.summary,
+        );
         return;
       }
       case 'report_partial': {
         task.memory = applyPlanUpdate(task.memory, [
-          ...task.memory.plan.filter((item) => item.status !== 'pending' && item.status !== 'active'),
-          ...call.remaining.map((text, index) => ({ id: `remaining_${index}`, text: text.slice(0, 500), status: 'pending' as const })),
+          ...task.memory.plan.filter(
+            (item) => item.status !== 'pending' && item.status !== 'active',
+          ),
+          ...call.remaining.map((text, index) => ({
+            id: `remaining_${index}`,
+            text: text.slice(0, 500),
+            status: 'pending' as const,
+          })),
         ]);
         task.memory = addIssue(task.memory, call.reason);
-        await this.#finishTask(call.done.length || task.memory.steps.length ? 'partially_completed' : 'failed', call.reason);
+        await this.#finishTask(
+          call.done.length || task.memory.steps.length ? 'partially_completed' : 'failed',
+          call.reason,
+        );
         return;
       }
       case 'start_timed_repeat': {
@@ -771,7 +974,10 @@ export class TaskController {
             return '';
           }
         })();
-        const valid = validateTimedRepeat(call, { authorization: task.authorization, tabOrigin: origin });
+        const valid = validateTimedRepeat(call, {
+          authorization: task.authorization,
+          tabOrigin: origin,
+        });
         if (!valid.ok) {
           task.lastResult = { tool: call.tool, ok: false, detail: valid.reason };
           return;
@@ -790,9 +996,22 @@ export class TaskController {
           return;
         }
         task.timedRepeatId = repeatId;
-        task.memory = appendStep(task.memory, { tool: call.tool, summary: `Repeating every ${Math.round(call.intervalMs / 1000)} s until you say stop`, ok: true, evidence: 'Timer started in the page' });
-        this.#timeline(task, stepId, `Repeating every ${Math.round(call.intervalMs / 1000)} seconds — say “stop” to end`, 'active');
-        this.deps.emit({ type: 'milestone', text: `Repeating every ${Math.round(call.intervalMs / 1000)} seconds. Say stop when you want me to end.` });
+        task.memory = appendStep(task.memory, {
+          tool: call.tool,
+          summary: `Repeating every ${Math.round(call.intervalMs / 1000)} s until you say stop`,
+          ok: true,
+          evidence: 'Timer started in the page',
+        });
+        this.#timeline(
+          task,
+          stepId,
+          `Repeating every ${Math.round(call.intervalMs / 1000)} seconds — say “stop” to end`,
+          'active',
+        );
+        this.deps.emit({
+          type: 'milestone',
+          text: `Repeating every ${Math.round(call.intervalMs / 1000)} seconds. Say stop when you want me to end.`,
+        });
         return;
       }
       default:
@@ -806,7 +1025,12 @@ export class TaskController {
     let visualTarget: RiskTarget | undefined;
     if ('x' in call && 'y' in call && snapshot) {
       const hit = snapshot.elements.find(
-        (element) => element.rect && call.x >= element.rect.x && call.x <= element.rect.x + element.rect.width && call.y >= element.rect.y && call.y <= element.rect.y + element.rect.height,
+        (element) =>
+          element.rect &&
+          call.x >= element.rect.x &&
+          call.x <= element.rect.x + element.rect.width &&
+          call.y >= element.rect.y &&
+          call.y <= element.rect.y + element.rect.height,
       );
       if (hit) visualTarget = hit;
     }
@@ -823,7 +1047,9 @@ export class TaskController {
           userTypedUrls: task.userTypedUrls,
           observedUrls: [...task.observedUrls],
           taskOrigins: task.memory.tabs.map((tab) => tab.origin).filter(Boolean),
-          recordValues: records.flatMap((record) => Object.values(record.fields)).filter((value) => value !== 'unknown'),
+          recordValues: records
+            .flatMap((record) => Object.values(record.fields))
+            .filter((value) => value !== 'unknown'),
         },
         frame: task.frame,
         ...(snapshot
@@ -861,14 +1087,18 @@ export class TaskController {
   #handlePolicy(task: Task, call: ToolCall, policy: PolicyOutcome, label: string): void {
     if (policy.decision === 'confirm') {
       const selected = selection(task.snapshot);
-      const target = 'elementId' in call && call.elementId ? task.snapshot?.elements.find((element) => element.id === call.elementId) : undefined;
+      const target =
+        'elementId' in call && call.elementId
+          ? task.snapshot?.elements.find((element) => element.id === call.elementId)
+          : undefined;
       // Re-preview the same operation in the user's terms when the target set changed.
       const previous = task.lastPreview;
       this.#preview(
         task,
         {
           operation: previous?.operation ?? (target?.name ?? label).slice(0, 200),
-          location: previous?.location ?? (task.snapshot?.title || task.snapshot?.url || 'this page'),
+          location:
+            previous?.location ?? (task.snapshot?.title || task.snapshot?.url || 'this page'),
           criteria: previous?.criteria ?? task.instruction.slice(0, 1_000),
           count: Math.max(1, selected.length),
           samples: selected.slice(0, 5),
@@ -886,38 +1116,74 @@ export class TaskController {
     if (policy.decision === 'block') {
       task.lastResult = { tool: call.tool, ok: false, detail: `Blocked: ${policy.reason}` };
       task.skipped.push({ item: label, reason: policy.reason });
-      task.memory = appendStep(task.memory, { tool: call.tool, summary: `${label} — not done: ${policy.reason}`.slice(0, 1_000), ok: false });
-      this.#timeline(task, `blocked_${task.stepCount}`, `Skipped: ${label}`, 'error', policy.reason);
+      task.memory = appendStep(task.memory, {
+        tool: call.tool,
+        summary: `${label} — not done: ${policy.reason}`.slice(0, 1_000),
+        ok: false,
+      });
+      this.#timeline(
+        task,
+        `blocked_${task.stepCount}`,
+        `Skipped: ${label}`,
+        'error',
+        policy.reason,
+      );
       const fingerprint = fingerprintOf(call);
       if (this.#scheduler.repeatCount(fingerprint) >= 2) this.#noteRepeat(task);
     }
   }
 
-  #preview(task: Task, proposal: Omit<OperationPreview, 'previewId' | 'targetFingerprint'>, snapshot?: PageSnapshot): void {
+  #preview(
+    task: Task,
+    proposal: Omit<OperationPreview, 'previewId' | 'targetFingerprint'>,
+    snapshot?: PageSnapshot,
+  ): void {
     const selected = selection(snapshot);
     const preview: OperationPreview = {
       ...proposal,
       previewId: `preview_${crypto.randomUUID()}`,
       count: selected.length || proposal.count,
       samples: (selected.length ? selected : proposal.samples).slice(0, 5),
-      targetFingerprint: selected.length ? targetFingerprint(selected) : targetFingerprint([...proposal.samples, `count:${proposal.count}`]),
+      targetFingerprint: selected.length
+        ? targetFingerprint(selected)
+        : targetFingerprint([...proposal.samples, `count:${proposal.count}`]),
     };
     task.pendingPreview = preview;
     task.lastPreview = preview;
     task.confirmation = undefined;
     this.#set('need_confirm');
-    this.#timeline(task, `preview_${task.stepCount}`, `Waiting for your OK: ${preview.operation} (${preview.count})`, 'active');
-    this.deps.emit({ type: 'milestone', text: `Please confirm: ${preview.operation}, ${preview.count} item${preview.count === 1 ? '' : 's'}.` });
+    this.#timeline(
+      task,
+      `preview_${task.stepCount}`,
+      `Waiting for your OK: ${preview.operation} (${preview.count})`,
+      'active',
+    );
+    this.deps.emit({
+      type: 'milestone',
+      text: `Please confirm: ${preview.operation}, ${preview.count} item${preview.count === 1 ? '' : 's'}.`,
+    });
   }
 
   #askUser(task: Task, question: string): void {
     task.pendingQuestion = question.slice(0, 1_000);
-    this.#set('ask');
+    if (task.status === 'waiting_for_user') this.#broadcast();
+    else this.#set('ask');
     this.#timeline(task, `ask_${task.stepCount}`, question.slice(0, 500), 'active');
     this.deps.emit({ type: 'milestone', text: question.slice(0, 1_000) });
   }
 
-  async #mutate(task: Task, call: ToolCall, response: PlannerResponse, label: string, stepId: string): Promise<void> {
+  #askForTab(task: Task, question: string, tabs: TabReference[]): void {
+    task.tabChoices = tabs.slice(0, 100).map((tab, index) => ({ ...tab, number: index + 1 }));
+    this.#askUser(task, question);
+  }
+
+  async #mutate(
+    task: Task,
+    call: ToolCall,
+    response: PlannerResponse,
+    label: string,
+    stepId: string,
+  ): Promise<void> {
     if (!MUTATING_TOOLS.has(call.tool)) {
       task.lastResult = { tool: call.tool, ok: false, detail: 'Unsupported tool.' };
       return;
@@ -942,8 +1208,16 @@ export class TaskController {
       return;
     }
     if (outcome.status === 'uncertain') {
-      task.memory = appendStep(task.memory, { tool: call.tool, summary: `${label} — outcome uncertain (interrupted)`, ok: false, uncertain: true });
-      task.memory = addIssue(task.memory, `Verify before continuing: ${label} may or may not have happened.`);
+      task.memory = appendStep(task.memory, {
+        tool: call.tool,
+        summary: `${label} — outcome uncertain (interrupted)`,
+        ok: false,
+        uncertain: true,
+      });
+      task.memory = addIssue(
+        task.memory,
+        `Verify before continuing: ${label} may or may not have happened.`,
+      );
       this.#timeline(task, stepId, `${label} — interrupted`, 'error');
       await this.#checkpoint(task);
       return;
@@ -951,7 +1225,11 @@ export class TaskController {
     const result = outcome.value;
     if (!result.ok) {
       task.lastResult = { tool: call.tool, ok: false, detail: result.detail };
-      task.memory = appendStep(task.memory, { tool: call.tool, summary: `${label} — failed: ${result.detail}`.slice(0, 1_000), ok: false });
+      task.memory = appendStep(task.memory, {
+        tool: call.tool,
+        summary: `${label} — failed: ${result.detail}`.slice(0, 1_000),
+        ok: false,
+      });
       this.#timeline(task, stepId, label, 'error', result.detail);
       if (this.#scheduler.repeatCount(fingerprint) >= 3) this.#noteRepeat(task);
       return;
@@ -978,29 +1256,53 @@ export class TaskController {
       ? checkExpectation(expectation, before, after.snapshot, result)
       : { verified: false, reason: 'Could not re-read the page.' };
     if (verification.verified || result.changed) this.#scheduler.noteProgress();
-    if (verification.verified && call.tool === 'type_text') this.#markSavedRecords(task, call.text, call.elementId);
+    if (verification.verified && call.tool === 'type_text')
+      this.#markSavedRecords(task, call.text, call.elementId);
     if (verification.verified && VISUAL_TOOLS.has(call.tool)) {
-      task.memory = { ...task.memory, issues: task.memory.issues.filter((issue) => !/could not be read/i.test(issue)) };
+      task.memory = {
+        ...task.memory,
+        issues: task.memory.issues.filter((issue) => !/could not be read/i.test(issue)),
+      };
     }
     task.memory = appendStep(task.memory, {
       tool: call.tool,
       summary: label,
       ok: true,
-      ...(verification.verified && verification.evidence ? { evidence: verification.evidence } : {}),
+      ...(verification.verified && verification.evidence
+        ? { evidence: verification.evidence }
+        : {}),
     });
     task.lastResult = {
       tool: call.tool,
       ok: true,
-      detail: (verification.verified ? `Verified: ${verification.evidence}` : `Done, but not verified: ${verification.reason ?? ''}`).slice(0, 2_000),
+      detail: (verification.verified
+        ? `Verified: ${verification.evidence}`
+        : `Done, but not verified: ${verification.reason ?? ''}`
+      ).slice(0, 2_000),
     };
-    this.#timeline(task, stepId, label, 'completed', verification.verified ? verification.evidence : undefined);
-    if (call.tool === 'click' || call.tool === 'type_text') task.confirmation = task.confirmation && this.#currentFingerprint(task) === task.confirmation.targetFingerprint ? task.confirmation : undefined;
+    this.#timeline(
+      task,
+      stepId,
+      label,
+      'completed',
+      verification.verified ? verification.evidence : undefined,
+    );
+    if (call.tool === 'click' || call.tool === 'type_text')
+      task.confirmation =
+        task.confirmation && this.#currentFingerprint(task) === task.confirmation.targetFingerprint
+          ? task.confirmation
+          : undefined;
     if (this.#scheduler.repeatCount(fingerprint) >= 3) this.#noteRepeat(task);
   }
 
   async #execute(task: Task, call: ToolCall): Promise<ContentResult> {
     const documentId = task.snapshot?.documentId ?? '';
-    const ok = (detail: string, changed = true): ContentResult => ({ ok: true, detail, changed, documentId });
+    const ok = (detail: string, changed = true): ContentResult => ({
+      ok: true,
+      detail,
+      changed,
+      documentId,
+    });
     switch (call.tool) {
       case 'open_tab': {
         const opened = await this.deps.tabs.open(call.url);
@@ -1012,7 +1314,8 @@ export class TaskController {
       }
       case 'activate_tab': {
         const tab = await this.deps.tabs.activate(call.tabId);
-        if (!task.memory.tabs.some((entry) => entry.tabId === tab.tabId)) task.memory = setTabRole(task.memory, tab, 'other');
+        if (!task.memory.tabs.some((entry) => entry.tabId === tab.tabId))
+          task.memory = setTabRole(task.memory, tab, 'other');
         this.#rebind(call.tabId);
         return ok(`Switched to ${tab.title}.`);
       }
@@ -1047,7 +1350,10 @@ export class TaskController {
         } catch (error) {
           // The action ran and the page unloaded before replying (e.g. a link click). Verification
           // re-observes the new page, so record it as a navigation instead of a failure.
-          if (error instanceof Error && /message channel closed|back\/forward cache|port closed/i.test(error.message)) {
+          if (
+            error instanceof Error &&
+            /message channel closed|back\/forward cache|port closed/i.test(error.message)
+          ) {
             return { ok: true, detail: 'The page navigated.', changed: true, documentId };
           }
           throw error;
@@ -1055,7 +1361,11 @@ export class TaskController {
     }
   }
 
-  async #executeVisual(task: Task, call: Extract<ToolCall, { tool: 'click_at' | 'double_click_at' | 'drag_at' | 'type_at' }>, documentId: string): Promise<ContentResult> {
+  async #executeVisual(
+    task: Task,
+    call: Extract<ToolCall, { tool: 'click_at' | 'double_click_at' | 'drag_at' | 'type_at' }>,
+    documentId: string,
+  ): Promise<ContentResult> {
     const cdp = this.deps.cdp!;
     if (cdp.attachedTabId() !== task.boundTabId) {
       try {
@@ -1063,13 +1373,19 @@ export class TaskController {
       } catch (error) {
         const reason = error instanceof Error ? error.message : 'Trusted input is unavailable.';
         this.#capability = 'dom_only';
-        this.deps.emit({ type: 'need_capability', capability: 'trusted_input', reason: reason.slice(0, 1_000) });
+        this.deps.emit({
+          type: 'need_capability',
+          capability: 'trusted_input',
+          reason: reason.slice(0, 1_000),
+        });
         return { ok: false, detail: reason, changed: false, documentId };
       }
     }
     this.#capability = 'dom_plus_trusted_input';
     const point = call.tool === 'drag_at' ? call.from : { x: call.x, y: call.y };
-    await this.deps.content.send(task.boundTabId, { type: 'cursor', x: point.x, y: point.y }).catch(() => undefined);
+    await this.deps.content
+      .send(task.boundTabId, { type: 'cursor', x: point.x, y: point.y })
+      .catch(() => undefined);
     if (call.tool === 'click_at') await cdp.click(call.x, call.y);
     if (call.tool === 'double_click_at') await cdp.click(call.x, call.y, { double: true });
     if (call.tool === 'type_at') {
@@ -1078,7 +1394,9 @@ export class TaskController {
     }
     if (call.tool === 'drag_at') {
       await cdp.drag(call.from, call.to);
-      await this.deps.content.send(task.boundTabId, { type: 'cursor', x: call.to.x, y: call.to.y }).catch(() => undefined);
+      await this.deps.content
+        .send(task.boundTabId, { type: 'cursor', x: call.to.x, y: call.to.y })
+        .catch(() => undefined);
     }
     task.frame = undefined; // coordinates from this frame must not be reused after a trusted action
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -1087,7 +1405,8 @@ export class TaskController {
 
   async #ensureTrustedInput(task: Task): Promise<boolean> {
     const cdp = this.deps.cdp;
-    if (cdp && this.#capability === 'dom_plus_trusted_input' && (await cdp.available())) return true;
+    if (cdp && this.#capability === 'dom_plus_trusted_input' && (await cdp.available()))
+      return true;
     if (cdp && (await cdp.available())) {
       this.#capability = 'dom_plus_trusted_input';
       return true;
@@ -1096,24 +1415,46 @@ export class TaskController {
     this.deps.emit({
       type: 'need_capability',
       capability: 'trusted_input',
-      reason: 'This page needs real mouse and keyboard input (for example a canvas editor). Chrome will show a “started debugging this browser” bar while Nudge controls the tab.',
+      reason:
+        'This page needs real mouse and keyboard input (for example a canvas editor). Chrome will show a “started debugging this browser” bar while Nudge controls the tab.',
     });
-    this.#askUser(task, 'This step needs real mouse and keyboard input. Allow Nudge to control this tab’s input, or tell me to stop.');
+    this.#askUser(
+      task,
+      'This step needs real mouse and keyboard input. Allow Nudge to control this tab’s input, or tell me to stop.',
+    );
     return false;
   }
 
-  async #transferCode(task: Task, call: Extract<ToolCall, { tool: 'transfer_code' }>, stepId: string): Promise<void> {
+  async #transferCode(
+    task: Task,
+    call: Extract<ToolCall, { tool: 'transfer_code' }>,
+    stepId: string,
+  ): Promise<void> {
     const known = (id: number) => task.tabs.some((tab) => tab.tabId === id);
     if (!known(call.sourceTabId) || !known(call.destinationTabId)) {
-      task.lastResult = { tool: call.tool, ok: false, detail: 'Source or destination tab is not available.' };
+      task.lastResult = {
+        tool: call.tool,
+        ok: false,
+        detail: 'Source or destination tab is not available.',
+      };
       return;
     }
-    let destinationDocumentId = task.boundTabId === call.destinationTabId ? task.snapshot?.documentId : undefined;
+    let destinationDocumentId =
+      task.boundTabId === call.destinationTabId ? task.snapshot?.documentId : undefined;
     if (!destinationDocumentId) {
-      destinationDocumentId = (await this.deps.content.send(call.destinationTabId, { type: 'observe' })).snapshot?.documentId;
+      destinationDocumentId = (
+        await this.deps.content.send(call.destinationTabId, { type: 'observe' })
+      ).snapshot?.documentId;
     }
-    if (!destinationDocumentId || !call.destinationElementId.startsWith(`${destinationDocumentId}:`)) {
-      task.lastResult = { tool: call.tool, ok: false, detail: 'The destination field is from an older page; observe the destination tab again.' };
+    if (
+      !destinationDocumentId ||
+      !call.destinationElementId.startsWith(`${destinationDocumentId}:`)
+    ) {
+      task.lastResult = {
+        tool: call.tool,
+        ok: false,
+        detail: 'The destination field is from an older page; observe the destination tab again.',
+      };
       return;
     }
     const fingerprint = fingerprintOf(call);
@@ -1131,17 +1472,27 @@ export class TaskController {
       }),
     );
     if (outcome.status !== 'done') {
-      task.memory = addIssue(task.memory, 'The code transfer was interrupted; check the verification field.');
+      task.memory = addIssue(
+        task.memory,
+        'The code transfer was interrupted; check the verification field.',
+      );
       return;
     }
     task.memory = appendStep(task.memory, {
       tool: call.tool,
-      summary: outcome.value.ok ? 'Entered the code into the verification field (not submitted)' : `Code not entered: ${outcome.value.detail}`,
+      summary: outcome.value.ok
+        ? 'Entered the code into the verification field (not submitted)'
+        : `Code not entered: ${outcome.value.detail}`,
       ok: outcome.value.ok,
       ...(outcome.value.ok ? { evidence: outcome.value.detail } : {}),
     });
     task.lastResult = { tool: call.tool, ok: outcome.value.ok, detail: outcome.value.detail };
-    this.#timeline(task, stepId, outcome.value.ok ? 'Entered the code (not submitted)' : 'Could not enter the code', outcome.value.ok ? 'completed' : 'error');
+    this.#timeline(
+      task,
+      stepId,
+      outcome.value.ok ? 'Entered the code (not submitted)' : 'Could not enter the code',
+      outcome.value.ok ? 'completed' : 'error',
+    );
   }
 
   // ───────────────────────── helpers ─────────────────────────
@@ -1152,7 +1503,9 @@ export class TaskController {
     if (!value) return;
     const target = task.snapshot?.elements.find((element) => element.id === elementId);
     for (const record of task.records.unsaved()) {
-      const matches = Object.values(record.fields).some((field) => field !== 'unknown' && field.trim().toLowerCase() === value);
+      const matches = Object.values(record.fields).some(
+        (field) => field !== 'unknown' && field.trim().toLowerCase() === value,
+      );
       if (!matches || record.sourceUrl === task.snapshot?.url) continue;
       task.records.markSaved(record.id, {
         tabId: task.boundTabId,
@@ -1164,9 +1517,14 @@ export class TaskController {
 
   #noteRepeat(task: Task): void {
     task.repeatNotes += 1;
-    task.notes.push('Repeated action without progress; choose a different approach or report what remains.');
+    task.notes.push(
+      'Repeated action without progress; choose a different approach or report what remains.',
+    );
     if (task.repeatNotes > 2) {
-      void this.#finishTask('partially_completed', 'I kept trying the same step without progress, so I stopped here.');
+      void this.#finishTask(
+        'partially_completed',
+        'I kept trying the same step without progress, so I stopped here.',
+      );
     }
   }
 
@@ -1179,7 +1537,12 @@ export class TaskController {
     task.notes.push(`User changed the instructions (${source}): ${text}`);
     task.confirmation = undefined;
     task.snapshotFresh = false;
-    this.#timeline(task, `correction_${this.#scheduler.instructionVersion}`, `Updated: ${text}`.slice(0, 500), 'completed');
+    this.#timeline(
+      task,
+      `correction_${this.#scheduler.instructionVersion}`,
+      `Updated: ${text}`.slice(0, 500),
+      'completed',
+    );
     if (task.status === 'waiting_for_confirmation') {
       task.pendingPreview = undefined;
       this.#set('declined');
@@ -1188,18 +1551,32 @@ export class TaskController {
     this.#kick();
   }
 
-  async #tabCorrection(tabId: number | undefined, text: string): Promise<void> {
+  async #tabCorrection(
+    tabId: number | undefined,
+    tabIndex: number | undefined,
+    text: string,
+  ): Promise<void> {
     const task = this.#task!;
     task.tabs = await this.deps.tabs.list();
     const candidates = task.tabs.filter((tab) => tab.tabId !== task.boundTabId);
-    const target = tabId ?? (candidates.length === 1 ? candidates[0]!.tabId : undefined);
+    const numberedTarget =
+      tabIndex === undefined
+        ? undefined
+        : task.tabChoices?.find((choice) => choice.number === tabIndex)?.tabId;
+    const target =
+      tabId ?? numberedTarget ?? (candidates.length === 1 ? candidates[0]!.tabId : undefined);
     if (target === undefined) {
       if (task.status === 'running') this.#scheduler.bumpGeneration();
-      this.#askUser(task, `Which tab should I use? ${candidates.map((tab) => `“${tab.title}”`).join(', ')}`.slice(0, 1_000));
+      this.#askForTab(
+        task,
+        'Which tab should I use? Say a number, such as “tab 5,” or choose one below.',
+        candidates,
+      );
       return;
     }
     this.#scheduler.bumpInstruction();
     this.#rebind(target);
+    task.tabChoices = undefined;
     task.notes.push(`User asked to use another tab (${text}). Work in tab ${target} now.`);
     task.memory = addConstraint(task.memory, text, this.#scheduler.instructionVersion);
     if (task.status === 'waiting_for_user') {
@@ -1216,6 +1593,7 @@ export class TaskController {
     task.snapshot = undefined;
     task.snapshotFresh = false;
     task.frame = undefined;
+    task.tabChoices = undefined;
   }
 
   #resumeIfWaiting(): void {
@@ -1231,7 +1609,8 @@ export class TaskController {
     if (this.deps.provider() !== 'ollama' || task.useOpenAI) return false;
     const reason = error instanceof Error ? error.message : 'Ollama could not complete this step.';
     task.fallbackOffer = { reason: reason.slice(0, 1_000) };
-    task.pendingQuestion = `Ollama could not plan this step (${reason}). Use OpenAI for this task only?`.slice(0, 1_000);
+    task.pendingQuestion =
+      `Ollama could not plan this step (${reason}). Use OpenAI for this task only?`.slice(0, 1_000);
     task.status = task.status === 'planning' ? 'waiting_for_user' : transition(task.status, 'ask');
     this.#broadcast();
     return true;
@@ -1242,8 +1621,13 @@ export class TaskController {
   }
 
   #export(task: Task, format: 'csv' | 'xlsx'): void {
-    const fields = task.records.fields.length ? task.records.fields : [...new Set(task.records.list().flatMap((record) => Object.keys(record.fields)))];
-    const bytes = format === 'csv' ? new TextEncoder().encode(toCsv(fields, task.records.list())) : toXlsx(fields, task.records.list());
+    const fields = task.records.fields.length
+      ? task.records.fields
+      : [...new Set(task.records.list().flatMap((record) => Object.keys(record.fields)))];
+    const bytes =
+      format === 'csv'
+        ? new TextEncoder().encode(toCsv(fields, task.records.list()))
+        : toXlsx(fields, task.records.list());
     this.#recordsKey += 1;
     const filename = `nudge-records-${this.#recordsKey}.${format}`;
     task.exports.push(filename);
@@ -1252,7 +1636,10 @@ export class TaskController {
       format,
       filename,
       dataBase64: base64(bytes),
-      mime: format === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      mime:
+        format === 'csv'
+          ? 'text/csv'
+          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
   }
 
@@ -1263,8 +1650,19 @@ export class TaskController {
     this.#broadcast();
   }
 
-  #timeline(task: Task, id: string, label: string, status: TimelineStep['status'], detail?: string): void {
-    const step: TimelineStep = { id: `${task.id}:${id}`.slice(0, 120), label: label.slice(0, 500) || 'Step', status, ...(detail ? { detail: detail.slice(0, 2_000) } : {}) };
+  #timeline(
+    task: Task,
+    id: string,
+    label: string,
+    status: TimelineStep['status'],
+    detail?: string,
+  ): void {
+    const step: TimelineStep = {
+      id: `${task.id}:${id}`.slice(0, 120),
+      label: label.slice(0, 500) || 'Step',
+      status,
+      ...(detail ? { detail: detail.slice(0, 2_000) } : {}),
+    };
     task.timeline = [...task.timeline.filter((item) => item.id !== step.id), step].slice(-100);
   }
 

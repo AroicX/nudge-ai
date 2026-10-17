@@ -12,11 +12,17 @@ interface BrowserTab {
   status?: string | undefined;
 }
 
-type UpdatedListener = (tabId: number, info: { url?: string | undefined; status?: string | undefined }) => void;
+type UpdatedListener = (
+  tabId: number,
+  info: { url?: string | undefined; status?: string | undefined },
+) => void;
 
 interface TabsApi {
   query(queryInfo: Record<string, unknown>): Promise<BrowserTab[]>;
-  update(tabId: number, updateProperties: { active?: boolean; url?: string }): Promise<BrowserTab | undefined>;
+  update(
+    tabId: number,
+    updateProperties: { active?: boolean; url?: string },
+  ): Promise<BrowserTab | undefined>;
   create(createProperties: { url: string; active?: boolean }): Promise<BrowserTab>;
   get?(tabId: number): Promise<BrowserTab | undefined>;
   remove?(tabId: number): Promise<void> | void;
@@ -103,7 +109,8 @@ export class TabRegistry {
 
   async activate(tabId: number): Promise<TabReference> {
     if (this.removed.has(tabId)) throw new Error('That browser tab is closed.');
-    const reference = this.known.get(tabId) ?? (await this.list()).find((tab) => tab.tabId === tabId);
+    const reference =
+      this.known.get(tabId) ?? (await this.list()).find((tab) => tab.tabId === tabId);
     if (!reference) throw new Error('That browser tab is closed.');
     if (reference.discarded) throw new Error('That browser tab was discarded by Chrome.');
     const updated = await this.tabs.update(tabId, { active: true });
@@ -115,15 +122,25 @@ export class TabRegistry {
 
   async open(url: string): Promise<TabReference> {
     const safeUrl = safeHttpUrl(url).href;
-    const reference = this.map(await this.tabs.create({ url: safeUrl }));
-    if (!reference) throw new Error('Chrome did not return a usable tab.');
+    const created = await this.tabs.create({ url: safeUrl });
+    let reference = this.map(created);
+    for (let attempt = 0; !reference && created.id !== undefined && attempt < 10; attempt += 1) {
+      const current = this.tabs.get
+        ? await this.tabs.get(created.id).catch(() => undefined)
+        : (await this.tabs.query({})).find((tab) => tab.id === created.id);
+      reference = current ? this.map(current) : undefined;
+      if (!reference) await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+    if (!reference)
+      throw new Error('Chrome opened the tab, but it did not become available to Nudge.');
     this.known.set(reference.tabId, reference);
     return reference;
   }
 
   async #requireKnown(tabId: number): Promise<TabReference> {
     if (this.removed.has(tabId)) throw new Error('That browser tab is not available.');
-    const reference = this.known.get(tabId) ?? (await this.list()).find((tab) => tab.tabId === tabId);
+    const reference =
+      this.known.get(tabId) ?? (await this.list()).find((tab) => tab.tabId === tabId);
     if (!reference) throw new Error('That browser tab is not available.');
     return reference;
   }

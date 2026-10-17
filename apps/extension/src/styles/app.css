@@ -182,9 +182,9 @@ header p {
   clip: rect(0, 0, 0, 0);
 }
 .execution-timeline {
-  background: white;
-  border: 1px solid #e3e6ee;
-  border-radius: 14px;
+  background: transparent;
+  /* border: 1px solid #e3e6ee;
+  border-radius: 14px; */
   padding: 10px 12px;
 }
 .chain-of-thought__trigger {
@@ -252,7 +252,9 @@ header p {
   font-weight: 650;
 }
 @keyframes pulse {
-  50% { opacity: 0.35; }
+  50% {
+    opacity: 0.35;
+  }
 }
 .source-chip span {
   font-size: 11px;
@@ -553,4 +555,84 @@ header p {
 .task-card--exports a {
   color: #4036a7;
   font-size: 12px;
+}
+.tab-picker {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border, #d8dbea) 82%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface, #fff) 94%, #6557e8 6%);
+}
+
+.tab-picker__title {
+  margin: 0 0 9px;
+  color: var(--muted, #62677a);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.tab-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.tab-choice {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--border, #d8dbea) 88%, transparent);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tab-choice:hover,
+.tab-choice:focus-visible {
+  border-color: #6557e8;
+  outline: none;
+}
+
+.tab-choice > strong {
+  font-size: 20px;
+  line-height: 1;
+  color: #6557e8;
+}
+
+.tab-choice__text,
+.tab-choice__domain {
+  min-width: 0;
+}
+
+.tab-choice__domain {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-choice__domain img {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.tab-choice small {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted, #74798b);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

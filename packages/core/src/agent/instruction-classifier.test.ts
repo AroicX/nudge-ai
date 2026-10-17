@@ -18,10 +18,12 @@ describe('classifyInstruction', () => {
   });
 
   it('treats yes as a confirmation only when one is pending', () => {
-    expect(classifyInstruction('yes, move them', { ...active, confirmationPending: true })).toEqual({
-      kind: 'confirm',
-      approved: true,
-    });
+    expect(classifyInstruction('yes, move them', { ...active, confirmationPending: true })).toEqual(
+      {
+        kind: 'confirm',
+        approved: true,
+      },
+    );
     expect(classifyInstruction("no, don't", { ...active, confirmationPending: true })).toEqual({
       kind: 'confirm',
       approved: false,
@@ -30,10 +32,38 @@ describe('classifyInstruction', () => {
   });
 
   it('recognises tab corrections', () => {
-    expect(classifyInstruction('use the other tab', active)).toMatchObject({ kind: 'tab_correction' });
+    expect(classifyInstruction('use the other tab', active)).toMatchObject({
+      kind: 'tab_correction',
+    });
     expect(
-      classifyInstruction('use the Sheet tab', { ...active, tabTitles: [{ tabId: 7, title: 'Jobs Sheet' }] }),
+      classifyInstruction('use the Sheet tab', {
+        ...active,
+        tabTitles: [{ tabId: 7, title: 'Jobs Sheet' }],
+      }),
     ).toMatchObject({ kind: 'tab_correction', tabId: 7 });
+    expect(classifyInstruction('tab 5', active)).toMatchObject({
+      kind: 'tab_correction',
+      tabIndex: 5,
+    });
+    expect(classifyInstruction('switch to tab 12', active)).toMatchObject({
+      kind: 'tab_correction',
+      tabIndex: 12,
+    });
+    expect(
+      classifyInstruction('switch to my Gmail tab', {
+        ...active,
+        tabTitles: [{ tabId: 11, title: 'Inbox - person@example.com - Gmail' }],
+      }),
+    ).toMatchObject({ kind: 'tab_correction', tabId: 11 });
+    expect(
+      classifyInstruction('switch to my Gmail tab', {
+        ...active,
+        tabTitles: [
+          { tabId: 11, title: 'Inbox - first@example.com - Gmail' },
+          { tabId: 12, title: 'Inbox - second@example.com - Gmail' },
+        ],
+      }),
+    ).toEqual({ kind: 'tab_correction', text: 'switch to my Gmail tab' });
   });
 
   it('turns other speech into a correction while active and a new task when idle', () => {

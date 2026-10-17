@@ -34,6 +34,8 @@ export class OllamaPlanner implements PlannerProvider {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         model: this.model,
+        // Routine scope and browser decisions should not spend time generating reasoning traces.
+        think: false,
         stream: false,
         format: schema,
         messages: [

@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 const ServerEnvironmentSchema = z
   .object({
-    OPENAI_API_KEY: z.string().min(1),
-    OPENAI_AGENT_MODEL: z.string().min(1),
+    OPENAI_API_KEY: z.string().default(''),
+    OPENAI_AGENT_MODEL: z.string().min(1).default('gpt-4.1-mini'),
     OPENAI_REALTIME_MODEL: z.string().min(1).default('gpt-realtime'),
     OPENAI_TRANSCRIBE_MODEL: z.string().min(1).default('gpt-4o-mini-transcribe'),
     NUDGE_PAIRING_SECRET: z.string().min(16),

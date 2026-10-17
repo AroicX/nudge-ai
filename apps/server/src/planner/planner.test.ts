@@ -71,6 +71,34 @@ describe('OpenAIPlanner', () => {
 describe('OllamaPlanner', () => {
   const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => value } as Response);
 
+  it('disables thinking for browser decisions while preserving structured output and cancellation', async () => {
+    const fetcher = vi.fn()
+      .mockReturnValueOnce(json({ capabilities: ['completion', 'tools', 'vision', 'thinking'] }))
+      .mockReturnValueOnce(json({ message: { content: JSON.stringify({ requestId: 'model_id', toolCall: { tool: 'list_tabs' } }) } }));
+    const planner = new OllamaPlanner('http://127.0.0.1:11434', 'qwen3.5:9b', fetcher);
+    const signal = new AbortController().signal;
+
+    const result = await planner.plan(plannerRequest(), signal);
+
+    const body = JSON.parse(fetcher.mock.calls[1]![1].body);
+    expect(body).toMatchObject({ model: 'qwen3.5:9b', think: false, stream: false, format: { type: 'object' } });
+    expect(fetcher.mock.calls[1]![1].signal).toBe(signal);
+    expect(result).toEqual({ requestId: 'req_1', toolCall: { tool: 'list_tabs' } });
+  });
+
+  it('disables thinking when scoping a task and returns a validated scope', async () => {
+    const fetcher = vi.fn().mockReturnValueOnce(json({ message: { content: JSON.stringify({
+      requestId: 'model_id', goal: 'Collect jobs', proposal: { origins: 'browse_web', categories: ['read', 'navigate'],
+      destinations: [], exclusions: [], limits: {} },
+    }) } }));
+    const planner = new OllamaPlanner('http://127.0.0.1:11434', 'qwen3.5:9b', fetcher);
+
+    const result = await planner.scope({ requestId: 'scope_1', instruction: 'Find frontend jobs', tabs: [] }, new AbortController().signal);
+
+    expect(JSON.parse(fetcher.mock.calls[0]![1].body)).toMatchObject({ think: false, format: { type: 'object' } });
+    expect(result).toMatchObject({ requestId: 'scope_1', goal: 'Collect jobs', proposal: { categories: ['read', 'navigate'] } });
+  });
+
   it('omits the screenshot for a model without vision and notes it', async () => {
     const fetcher = vi
       .fn()

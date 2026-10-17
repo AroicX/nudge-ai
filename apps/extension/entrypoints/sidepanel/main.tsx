@@ -1,5 +1,10 @@
 import { StrictMode, useEffect, useRef, useState } from 'react';
-import { ProviderSelectionSchema, type ControllerMessage, type ProviderSelection } from '@nudge/contracts';
+import {
+  ProviderSelectionSchema,
+  type ControllerMessage,
+  type ProviderSelection,
+  type SourceReference,
+} from '@nudge/contracts';
 import { createRoot } from 'react-dom/client';
 
 import { SidePanel } from '../../src/components/SidePanel';
@@ -7,6 +12,7 @@ import { ServerClient } from '../../src/api/server-client';
 import type { PortLike } from '../../src/agent/panel-bridge';
 import { ControllerClient } from '../../src/panel/controller-client';
 import { useNudgeStore } from '../../src/state/use-nudge-store';
+import { browserLocalAudio, localBrowserInstruction, LocalVoiceConversation } from '../../src/voice/local-voice';
 import { PushToTalkTransport } from '../../src/voice/push-to-talk-transport';
 import {
   browserRealtimeDependencies,
@@ -24,7 +30,9 @@ const client = new ServerClient(
   import.meta.env.WXT_PUBLIC_NUDGE_SERVER_URL ?? 'http://127.0.0.1:4317',
   import.meta.env.WXT_PUBLIC_NUDGE_PAIRING_SECRET ?? '',
 );
-const controller = new ControllerClient(() => browser.runtime.connect({ name: 'nudge-panel' }) as unknown as PortLike);
+const controller = new ControllerClient(
+  () => browser.runtime.connect({ name: 'nudge-panel' }) as unknown as PortLike,
+);
 const tabRegistry = new TabRegistry();
 
 const STATUS: Record<string, string> = {
@@ -51,17 +59,35 @@ async function originTabId(): Promise<number | undefined> {
 
 function App() {
   const state = useNudgeStore();
+  const localVoiceRef = useRef<LocalVoiceConversation | undefined>(undefined);
+  const localProviderRef = useRef(false);
+  const [voiceMuted, setVoiceMuted] = useState(false);
   const voiceRef = useRef<VoiceSessionController | undefined>(undefined);
-  const voiceTransportRef = useRef<ReturnType<typeof createRealtimeVoiceTransport> | undefined>(undefined);
-  const voiceConversationRef = useRef<ReturnType<typeof createVoiceConversation> | undefined>(undefined);
+  const voiceTransportRef = useRef<ReturnType<typeof createRealtimeVoiceTransport> | undefined>(
+    undefined,
+  );
+  const voiceConversationRef = useRef<ReturnType<typeof createVoiceConversation> | undefined>(
+    undefined,
+  );
   const announced = useRef(new Set<string>());
-  const pushToTalkRef = useRef(new PushToTalkTransport((audio, signal) => client.transcribe(audio, signal)));
+  const pushToTalkRef = useRef(
+    new PushToTalkTransport((audio, signal) => client.transcribe(audio, signal, localProviderRef.current)),
+  );
   const [pushRecording, setPushRecording] = useState(false);
-  const [providerSelection, setProviderSelection] = useState<ProviderSelection>({ provider: 'openai' });
-  const [providerHealth, setProviderHealth] = useState<Awaited<ReturnType<typeof client.getProviderHealth>>>();
+  const [providerSelection, setProviderSelection] = useState<ProviderSelection>({
+    provider: 'openai',
+  });
+  const [providerHealth, setProviderHealth] =
+    useState<Awaited<ReturnType<typeof client.getProviderHealth>>>();
 
-  const assistant = (text: string) =>
-    useNudgeStore.getState().addTurn({ id: crypto.randomUUID(), role: 'assistant', text: text.slice(0, 4_000), createdAt: new Date().toISOString() });
+  const assistant = (text: string, sources: SourceReference[] = []) =>
+    useNudgeStore.getState().addTurn({
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      text: text.slice(0, 4_000),
+      createdAt: new Date().toISOString(),
+      sources,
+    });
 
   const onControllerMessage = (message: ControllerMessage) => {
     const store = useNudgeStore.getState();
@@ -72,17 +98,18 @@ function App() {
       const key = (suffix: string) => `${task.taskId ?? 'none'}:${suffix}`;
       if (task.pendingQuestion && !announced.current.has(key(`q:${task.pendingQuestion}`))) {
         announced.current.add(key(`q:${task.pendingQuestion}`));
-        assistant(task.pendingQuestion);
+        assistant(task.pendingQuestion, task.sources ?? []);
       }
       if (task.report && !announced.current.has(key('report'))) {
         announced.current.add(key('report'));
-        assistant(task.report.summary);
+        assistant(task.report.summary, task.sources ?? []);
       }
       return;
     }
     if (message.type === 'milestone') {
       store.setStatus(message.text.slice(0, 200));
-      voiceTransportRef.current?.speakMilestone?.(message.text);
+      if (localProviderRef.current) localVoiceRef.current?.speakMilestone(message.text);
+      else voiceTransportRef.current?.speakMilestone?.(message.text);
       return;
     }
     if (message.type === 'export_ready') {
@@ -95,10 +122,21 @@ function App() {
   };
 
   const instruct = async (text: string, source: 'text' | 'voice', recordTurn = true) => {
+    const origin = await originTabId();
     if (recordTurn) {
-      useNudgeStore.getState().addTurn({ id: crypto.randomUUID(), role: 'user', text, createdAt: new Date().toISOString() });
+      const linkedTab =
+        origin === undefined
+          ? undefined
+          : (await tabRegistry.list().catch(() => [])).find((tab) => tab.tabId === origin);
+      useNudgeStore.getState().addTurn({
+        id: crypto.randomUUID(),
+        role: 'user',
+        text,
+        createdAt: new Date().toISOString(),
+        sources: linkedTab ? [linkedTab] : [],
+      });
     }
-    controller.instruct(text, source, await originTabId());
+    controller.instruct(text, source, origin);
   };
 
   const bridge = createVoiceTaskBridge({ instruct: (text) => void instruct(text, 'voice', false) });
@@ -113,54 +151,114 @@ function App() {
   if (!voiceRef.current) {
     const transport = createRealtimeVoiceTransport(browserRealtimeDependencies());
     voiceTransportRef.current = transport;
-    voiceRef.current = new VoiceSessionController(transport, (signal) => client.issueRealtimeSession(signal), (event) => {
-      bridge(event);
+    voiceRef.current = new VoiceSessionController(
+      transport,
+      (signal) => client.issueRealtimeSession(signal),
+      (event) => {
+        bridge(event);
+        voiceConversationRef.current?.handle(event);
+        const current = useNudgeStore.getState();
+        if (event.type === 'state') current.setVoiceState(event.state);
+        if (event.type === 'error') current.setStatus(event.message);
+      },
+    );
+  }
+
+  if (!localVoiceRef.current) {
+    localVoiceRef.current = new LocalVoiceConversation({
+      health: (signal) => client.localVoiceHealth(signal),
+      transcribe: (audio, signal) => client.transcribe(audio, signal, true),
+      chat: (messages, signal) => client.localVoiceChat(messages, signal),
+      speech: (text, signal) => client.localVoiceSpeech(text, signal),
+    }, (event) => {
       voiceConversationRef.current?.handle(event);
-      const current = useNudgeStore.getState();
-      if (event.type === 'state') current.setVoiceState(event.state);
-      if (event.type === 'error') current.setStatus(event.message);
+      if (event.type === 'state') useNudgeStore.getState().setVoiceState(event.state);
+      if (event.type === 'error') useNudgeStore.getState().setStatus(event.message);
+    }, browserLocalAudio, (text) => {
+      const instruction = localBrowserInstruction(text, useNudgeStore.getState().busy);
+      if (!instruction) return false;
+      void instruct(instruction, 'voice', false);
+      return true;
     });
   }
+  const activeVoice = () => localProviderRef.current ? localVoiceRef.current : voiceRef.current;
 
   const providerVision = (selection: ProviderSelection, health = providerHealth) =>
     selection.provider === 'openai'
       ? true
-      : Boolean((health?.ollama as { modelCapabilities?: Record<string, { vision: boolean }> } | undefined)?.modelCapabilities?.[selection.model]?.vision);
+      : Boolean(
+          (
+            health?.ollama as
+              { modelCapabilities?: Record<string, { vision: boolean }> } | undefined
+          )?.modelCapabilities?.[selection.model]?.vision,
+        );
 
   const selectProvider = async (selection: ProviderSelection) => {
+    await voiceRef.current?.end();
+    await localVoiceRef.current?.end();
+    await pushToTalkRef.current.cancel();
+    setPushRecording(false);
     await client.setProviderSelection(selection);
-    await browser.storage.local.set({ providerSelection: selection, providerVision: providerVision(selection) });
+    localProviderRef.current = selection.provider === 'ollama';
+    await browser.storage.local.set({
+      providerSelection: selection,
+      providerVision: providerVision(selection),
+    });
     setProviderSelection(selection);
-    state.setStatus(selection.provider === 'ollama' ? `Using local Ollama: ${selection.model}` : 'Using OpenAI.');
+    state.setStatus(
+      selection.provider === 'ollama' ? `Using local Ollama: ${selection.model}` : 'Using OpenAI.',
+    );
   };
 
   useEffect(() => {
     controller.connect(onControllerMessage);
     void state.hydrateHistory();
-    void browser.storage.local.get('providerSelection').then(async ({ providerSelection: saved }) => {
-      const parsed = ProviderSelectionSchema.safeParse(saved);
-      const selection = parsed.success ? parsed.data : { provider: 'openai' as const };
-      const health = await client.getProviderHealth(selection.provider === 'ollama' ? selection.baseUrl : undefined);
-      const available = reconcileProviderSelection(selection, health);
-      setProviderHealth(health);
-      setProviderSelection(available);
-      await client.setProviderSelection(available);
-      await browser.storage.local.set({ providerSelection: available, providerVision: providerVision(available, health) });
-      if (JSON.stringify(available) !== JSON.stringify(selection)) {
-        state.setStatus(available.provider === 'openai' ? 'Ollama has no available model. Using OpenAI.' : `Using local Ollama: ${available.model}`);
-      }
-    });
+    void browser.storage.local
+      .get('providerSelection')
+      .then(async ({ providerSelection: saved }) => {
+        const parsed = ProviderSelectionSchema.safeParse(saved);
+        const selection = parsed.success ? parsed.data : { provider: 'openai' as const };
+        const health = await client.getProviderHealth(
+          selection.provider === 'ollama' ? selection.baseUrl : undefined,
+        );
+        const available = reconcileProviderSelection(selection, health);
+        setProviderHealth(health);
+        localProviderRef.current = available.provider === 'ollama';
+        setProviderSelection(available);
+        await client.setProviderSelection(available);
+        await browser.storage.local.set({
+          providerSelection: available,
+          providerVision: providerVision(available, health),
+        });
+        if (JSON.stringify(available) !== JSON.stringify(selection)) {
+          state.setStatus(
+            available.provider === 'openai'
+              ? 'Ollama has no available model. Using OpenAI.'
+              : `Using local Ollama: ${available.model}`,
+          );
+        }
+      });
     if (import.meta.env.WXT_PUBLIC_NUDGE_E2E === '1') {
       // Test-only hooks for the Playwright harness (e2e builds only).
       Object.assign(window, {
         __nudgeTest: {
-          injectTranscript: (text: string) => bridge({ type: 'transcript', role: 'user', text, final: true }),
+          injectTranscript: (text: string) =>
+            bridge({ type: 'transcript', role: 'user', text, final: true }),
           instruct: (text: string, origin?: number) => {
-            useNudgeStore.getState().addTurn({ id: crypto.randomUUID(), role: 'user', text, createdAt: new Date().toISOString() });
+            useNudgeStore
+              .getState()
+              .addTurn({
+                id: crypto.randomUUID(),
+                role: 'user',
+                text,
+                createdAt: new Date().toISOString(),
+              });
             controller.instruct(text, 'text', origin);
           },
-          confirm: (previewId: string, approved: boolean) => controller.confirm(previewId, approved),
-          control: (action: 'stop' | 'pause' | 'resume' | 'continue_budget') => controller.control(action),
+          confirm: (previewId: string, approved: boolean) =>
+            controller.confirm(previewId, approved),
+          control: (action: 'stop' | 'pause' | 'resume' | 'continue_budget') =>
+            controller.control(action),
           exportRecords: (format: 'csv' | 'xlsx') => controller.requestExport(format),
           state: () => useNudgeStore.getState().controller,
           exports: () => useNudgeStore.getState().exports,
@@ -170,6 +268,7 @@ function App() {
     return () => {
       controller.close();
       void voiceRef.current?.end();
+      void localVoiceRef.current?.end();
       void pushToTalkRef.current.cancel();
     };
   }, []);
@@ -191,6 +290,7 @@ function App() {
 
   const togglePushToTalk = async (): Promise<string | undefined> => {
     try {
+      if (activeVoice()?.active) await activeVoice()?.end();
       if (!pushRecording) {
         if (!(await ensureMicrophone())) return '';
         await pushToTalkRef.current.start();
@@ -223,7 +323,9 @@ function App() {
       onProviderSelection={(selection) => void selectProvider(selection)}
       onRefreshProviders={() =>
         void client
-          .getProviderHealth(providerSelection.provider === 'ollama' ? providerSelection.baseUrl : undefined)
+          .getProviderHealth(
+            providerSelection.provider === 'ollama' ? providerSelection.baseUrl : undefined,
+          )
           .then(setProviderHealth)
       }
       onApproveFallback={() => controller.approveFallback(true)}
@@ -237,37 +339,50 @@ function App() {
       onDismissCapability={() => state.setCapabilityReason(undefined)}
       onExport={(format) => controller.requestExport(format)}
       actions={state.actions}
-      onSend={(text) => void instruct(text, 'text')}
+      onSend={(text) => activeVoice()?.active ? activeVoice()?.sendText(text) : void instruct(text, 'text')}
+      onSelectTab={(number) => void instruct(`tab ${number}`, 'text')}
       onStop={() => controller.control('stop')}
       onSaveKey={(key) =>
         void client
           .setProviderKey(key)
           .then(() => state.setStatus('Using your key for this backend session.'))
-          .catch((error: unknown) => state.setStatus(error instanceof Error ? error.message : 'Could not save key.'))
+          .catch((error: unknown) =>
+            state.setStatus(error instanceof Error ? error.message : 'Could not save key.'),
+          )
       }
       onClearKey={() =>
         void client
           .clearProviderKey()
           .then(() => state.setStatus('Using the local default key.'))
-          .catch((error: unknown) => state.setStatus(error instanceof Error ? error.message : 'Could not clear key.'))
+          .catch((error: unknown) =>
+            state.setStatus(error instanceof Error ? error.message : 'Could not clear key.'),
+          )
       }
       onClearHistory={state.clearHistory}
       onOpenSource={(source) =>
         void tabRegistry.resolveSource(source).then(async (resolved) => {
-          if (resolved.kind === 'existing' && resolved.tab) await tabRegistry.activate(resolved.tab.tabId);
+          if (resolved.kind === 'existing' && resolved.tab)
+            await tabRegistry.activate(resolved.tab.tabId);
           else await tabRegistry.open(resolved.url);
         })
       }
       voiceState={state.voiceState}
       voiceTranscript={state.voiceTranscript}
-      showRealtimeVoice={providerSelection.provider === 'openai'}
+      showRealtimeVoice
+      voiceMuted={voiceMuted}
+      onMuteVoice={() => { const muted = !voiceMuted; setVoiceMuted(muted); activeVoice()?.setMuted(muted); }}
       onStartVoice={() =>
         void ensureMicrophone().then((ready) => {
-          if (ready) return voiceRef.current?.start();
+          if (ready) {
+            void pushToTalkRef.current.cancel();
+            setPushRecording(false); setVoiceMuted(false);
+            if (localProviderRef.current) state.setStatus('Local voice: speak naturally. Say “Nudge, …” for browser tasks. Headphones help prevent speaker echo.');
+            return activeVoice()?.start();
+          }
         })
       }
-      onEndVoice={() => void voiceRef.current?.end()}
-      onInterruptVoice={() => voiceRef.current?.interrupt()}
+      onEndVoice={() => void activeVoice()?.end()}
+      onInterruptVoice={() => activeVoice()?.interrupt()}
       onPushToTalk={() => void togglePushToTalk()}
       onDictate={togglePushToTalk}
     />

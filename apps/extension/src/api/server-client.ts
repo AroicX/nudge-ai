@@ -107,16 +107,30 @@ export class ServerClient {
     return VoiceSessionConfigSchema.parse(await response.json());
   }
 
-  async transcribe(audio: Blob, signal: AbortSignal): Promise<string> {
+  async localVoiceHealth(signal: AbortSignal): Promise<{ available: boolean; error?: string }> {
+    return (await this.request('/api/local-voice/health', { method: 'GET' }, signal)).json();
+  }
+
+  async localVoiceChat(messages: Array<{ role: 'user' | 'assistant'; content: string }>, signal: AbortSignal): Promise<string> {
+    const response = await this.request('/api/local-voice/chat', { method: 'POST', body: JSON.stringify({ messages }) }, signal);
+    const body = await response.json() as { text: string };
+    return body.text;
+  }
+
+  async localVoiceSpeech(text: string, signal: AbortSignal): Promise<Blob> {
+    return (await this.request('/api/local-voice/speech', { method: 'POST', body: JSON.stringify({ text }) }, signal)).blob();
+  }
+
+  async transcribe(audio: Blob, signal: AbortSignal, local = false): Promise<string> {
     const form = new FormData();
-    form.append('audio', audio, `speech.${audio.type.includes('mp4') ? 'mp4' : 'webm'}`);
-    const response = await fetch(`${this.baseUrl}/api/audio/transcribe`, {
+    form.append('audio', audio, `speech.${audio.type.includes('wav') ? 'wav' : audio.type.includes('mp4') ? 'mp4' : 'webm'}`);
+    const response = await fetch(`${this.baseUrl}${local ? '/api/local-voice/transcribe' : '/api/audio/transcribe'}`, {
       method: 'POST',
       headers: { 'x-nudge-pairing-secret': this.pairingSecret },
       body: form,
       signal,
     });
-    if (!response.ok) throw new Error('Could not transcribe audio.');
+    if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? 'Could not transcribe audio.');
     const body = (await response.json()) as { text?: unknown };
     if (typeof body.text !== 'string') throw new Error('Transcription response was invalid.');
     return body.text;
