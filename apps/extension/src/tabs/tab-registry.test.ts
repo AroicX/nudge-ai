@@ -119,3 +119,23 @@ describe('TabRegistry', () => {
     });
   });
 });
+
+it('captures the active tab in the panel window instead of an unrelated active window', async () => {
+  const tabs = api([]);
+  tabs.query.mockImplementation(async (query) =>
+    query.currentWindow
+      ? [{ id: 9, windowId: 4, active: true, url: 'https://www.jumia.com.ng/', title: 'Jumia' }]
+      : [{ id: 1, windowId: 1, active: true, url: 'https://google.com/', title: 'Google' }],
+  );
+  await expect(new TabRegistry(tabs, now).current()).resolves.toMatchObject({
+    tabId: 9,
+    domain: 'www.jumia.com.ng',
+  });
+  expect(tabs.query).toHaveBeenCalledWith({ active: true, currentWindow: true });
+});
+
+it('does not substitute another website when the current tab is unsupported', async () => {
+  const tabs = api([{ id: 1, windowId: 1, active: true, url: 'chrome://newtab' }]);
+  await expect(new TabRegistry(tabs, now).current()).resolves.toBeUndefined();
+  expect(tabs.query).toHaveBeenCalledTimes(1);
+});

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ProviderSelectionSchema } from './provider-settings';
 
 import {
   AuthorizationRecordSchema,
@@ -16,10 +17,31 @@ const TabChoiceSchema = TabReferenceSchema.extend({
   number: z.number().int().positive().max(999),
 }).strict();
 
+export const ScheduledTaskSchema = z
+  .object({
+    id: z.string().min(1).max(120),
+    instruction: z.string().min(1).max(4000),
+    runAt: z.number().int().nonnegative(),
+    originTabId: z.number().int().nonnegative(),
+    originUrl: z
+      .string()
+      .url()
+      .max(4000)
+      .refine((url) => /^https?:\/\//i.test(url)),
+    provider: z.enum(['openai', 'ollama']),
+    providerSelection: ProviderSelectionSchema.optional(),
+    status: z.enum(['pending', 'running', 'attention', 'completed', 'failed', 'cancelled']),
+    detail: z.string().max(1000).optional(),
+  })
+  .strict();
+export type ScheduledTask = z.infer<typeof ScheduledTaskSchema>;
+
 export const ControllerSnapshotSchema = z
   .object({
     taskId: z.string().min(1).max(120).optional(),
     status: z.union([TaskStatusSchema, z.literal('idle')]),
+    startedAt: z.number().int().nonnegative().optional(),
+    completedAt: z.number().int().nonnegative().optional(),
     goal: z.string().max(4_000).optional(),
     plan: z.array(PlanItemSchema).max(40),
     memorySummary: z
@@ -46,6 +68,8 @@ export const ControllerSnapshotSchema = z
   .strict();
 
 export const PanelMessageSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('manage_schedule'), id: z.string().min(1).max(120), action: z.enum(['run','delete','update']), instruction: z.string().trim().min(1).max(4000).optional(), runAt: z.number().int().nonnegative().optional() }).strict(),
+  z.object({ type: z.literal('cancel_schedule'), id: z.string().min(1).max(120) }).strict(),
   z
     .object({
       type: z.literal('instruct'),
@@ -77,6 +101,7 @@ export const PanelMessageSchema = z.discriminatedUnion('type', [
 ]);
 
 export const ControllerMessageSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('schedules'), jobs: z.array(ScheduledTaskSchema).max(50) }).strict(),
   z.object({ type: z.literal('state'), task: ControllerSnapshotSchema }).strict(),
   z.object({ type: z.literal('milestone'), text: z.string().min(1).max(1_000) }).strict(),
   z

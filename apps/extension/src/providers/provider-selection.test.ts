@@ -10,13 +10,13 @@ const ollamaSelection: ProviderSelection = {
 };
 
 describe('reconcileProviderSelection', () => {
-  it('falls back to OpenAI when Ollama has no installed models', () => {
+  it('preserves local intent when Ollama has no installed models', () => {
     expect(
       reconcileProviderSelection(ollamaSelection, {
         openai: { available: true },
         ollama: { available: true, models: [] },
       }),
-    ).toEqual({ provider: 'openai' });
+    ).toEqual(ollamaSelection);
   });
 
   it('uses an available Ollama model when the saved model was removed', () => {
@@ -40,4 +40,13 @@ describe('reconcileProviderSelection', () => {
       }),
     ).toEqual(ollamaSelection);
   });
+});
+
+it('preserves local intent when Ollama is offline even if OpenAI is available', () => {
+  expect(
+    reconcileProviderSelection(ollamaSelection, {
+      openai: { available: true },
+      ollama: { available: false, models: [], error: 'Offline' },
+    }),
+  ).toEqual(ollamaSelection);
 });

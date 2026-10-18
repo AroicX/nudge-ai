@@ -1,6 +1,12 @@
-import type { PlannerRequest, PlannerResponse, ScopeRequest, ScopeResponse } from '@nudge/contracts';
+import type {
+  PlannerRequest,
+  PlannerResponse,
+  ScopeRequest,
+  ScopeResponse,
+} from '@nudge/contracts';
 
 export interface PlannerProvider {
+  readonly requestTimeoutMs?: number;
   plan(request: PlannerRequest, signal: AbortSignal): Promise<PlannerResponse>;
   scope(request: ScopeRequest, signal: AbortSignal): Promise<ScopeResponse>;
   capabilities?(): Promise<{ tools: boolean; vision: boolean }>;

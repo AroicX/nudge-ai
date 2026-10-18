@@ -96,6 +96,12 @@ export class TabRegistry {
     });
   }
 
+  /** Resolve the page beside this panel, without falling back to another window. */
+  async current(): Promise<TabReference | undefined> {
+    const [tab] = await this.tabs.query({ active: true, currentWindow: true });
+    return tab ? this.map(tab) : undefined;
+  }
+
   async list(): Promise<TabReference[]> {
     const references = (await this.tabs.query({})).flatMap((tab) => {
       const reference = this.map(tab);

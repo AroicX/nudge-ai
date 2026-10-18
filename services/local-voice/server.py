@@ -2,6 +2,7 @@
 import asyncio
 import hmac
 import io
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -16,6 +17,7 @@ from fastapi.responses import Response
 ROOT = Path(__file__).resolve().parent
 MAX_UPLOAD = 8 * 1024 * 1024
 MAX_SECONDS = 30
+TRANSCRIPTION_CONTEXT = "Nigerian English conversation. Nudge, YouTube, naira, Lagos, Abuja."
 
 
 def create_app(engine, secret):
@@ -40,7 +42,11 @@ def create_app(engine, secret):
 
     @app.get('/health')
     def health():
-        return {'available': bool(secret) and engine.ready(), 'ready': bool(secret) and engine.ready(), 'whisper': 'small.en', 'tts': 'kokoro', 'maxAudioSeconds': MAX_SECONDS}
+        ready = bool(secret) and engine.ready()
+        result = {'available': ready, 'ready': ready, 'whisper': 'small.en', 'tts': 'kokoro', 'maxAudioSeconds': MAX_SECONDS}
+        if not ready:
+            result['error'] = 'Set NUDGE_PAIRING_SECRET.' if not secret else 'Run services/local-voice/setup.sh to install speech models and ffmpeg.'
+        return result
 
     async def run(operation):
         if not engine.ready():
@@ -59,7 +65,13 @@ def create_app(engine, secret):
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         except Exception as exc:
+            logging.exception('Local speech inference failed')
             raise HTTPException(503, 'Local speech failed. Check the speech service terminal.') from exc
+
+    @app.post('/warmup')
+    async def warmup():
+        await run(engine.warmup)
+        return {'ready': True}
 
     @app.post('/transcribe')
     async def transcribe(request: Request):
@@ -91,24 +103,41 @@ class SpeechEngine:
     def __init__(self, model_dir=ROOT / 'models'):
         self.models = Path(model_dir)
         self.kokoro = None
+        self.warmed = False
 
     def ready(self):
         return bool(shutil.which('ffmpeg')) and all((self.models / name).exists() for name in (
             'whisper-small.en/config.json', 'whisper-small.en/weights.npz', 'kokoro-v1.0.onnx', 'voices-v1.0.bin'))
 
-    def transcribe(self, data):
+    def warmup(self):
+        if self.warmed:
+            return
+        # Do the one-time imports/model loading before opening the microphone.
+        import numpy as np
         import mlx_whisper
+        mlx_whisper.transcribe(np.zeros(16000, dtype=np.float32), path_or_hf_repo=str(self.models / 'whisper-small.en'), language='en', temperature=0, condition_on_previous_text=False, verbose=None)
+        self.speech('Ready.')
+        self.warmed = True
+
+    def transcribe(self, data):
         with tempfile.TemporaryDirectory(prefix='nudge-speech-') as directory:
             source, target = Path(directory) / 'input', Path(directory) / 'audio.wav'
             source.write_bytes(data)
             try:
-                subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-threads', '2', '-protocol_whitelist', 'file,pipe', '-i', str(source), '-t', str(MAX_SECONDS + 1), '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', str(target)], check=True, capture_output=True, timeout=15)
+                subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-threads', '2', '-protocol_whitelist', 'file,pipe', '-format_whitelist', 'matroska,webm,wav,mp3,ogg,flac,aac,mov', '-i', str(source), '-t', str(MAX_SECONDS + 1), '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', str(target)], check=True, capture_output=True, timeout=15)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 raise ValueError('Audio could not be decoded')
             with wave.open(str(target)) as wav:
                 if wav.getnframes() / wav.getframerate() > MAX_SECONDS:
                     raise ValueError('Recordings must be 30 seconds or shorter')
-            result = mlx_whisper.transcribe(str(target), path_or_hf_repo=str(self.models / 'whisper-small.en'), language='en', temperature=0, condition_on_previous_text=False, verbose=None)
+                import numpy as np
+                samples = np.frombuffer(wav.readframes(wav.getnframes()), dtype='<i2').astype(np.float32) / 32768.0
+            # Empty/near-silent clips must not turn vocabulary hints into invented speech.
+            if not len(samples) or float(np.max(np.abs(samples))) < 0.005:
+                return ''
+            import mlx_whisper
+            # Pass decoded PCM directly: Whisper otherwise launches ffmpeg a second time.
+            result = mlx_whisper.transcribe(samples, path_or_hf_repo=str(self.models / 'whisper-small.en'), language='en', temperature=0, initial_prompt=TRANSCRIPTION_CONTEXT, condition_on_previous_text=False, verbose=None)
         return result['text'].strip()
 
     def speech(self, text):

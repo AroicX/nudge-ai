@@ -1,3 +1,4 @@
+import { contentRandomUUID } from '../src/content/random-id';
 import { ContentRequestSchema } from '@nudge/contracts';
 
 import { createPageAdapter } from '../src/content/page-adapter';
@@ -15,7 +16,7 @@ export default defineContentScript({
     const adapter = createPageAdapter({
       document,
       window,
-      documentId: crypto.randomUUID(),
+      documentId: contentRandomUUID(),
       visualizeActions: true,
       onTimedEnd: (repeatId, reason) => {
         void browser.runtime.sendMessage({ type: 'content.timed_ended', repeatId, reason }).catch(() => undefined);
@@ -36,7 +37,7 @@ export default defineContentScript({
       onOpen: () => {
         void sendExtensionMessage({
           type: 'sidepanel.open',
-          requestId: crypto.randomUUID(),
+          requestId: contentRandomUUID(),
         });
       },
     });

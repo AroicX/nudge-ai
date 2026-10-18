@@ -44,6 +44,7 @@ export const VoiceEventSchema = z.discriminatedUnion('type', [
       role: z.enum(['user', 'assistant']),
       text: z.string().max(10_000),
       final: z.boolean(),
+      replace: z.boolean().optional(),
       ...VoiceProviderIdentitySchema,
     })
     .strict(),

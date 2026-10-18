@@ -11,7 +11,7 @@ export function reconcileProviderSelection(
 ): ProviderSelection {
   if (selection.provider !== 'ollama') return selection;
   if (!health.ollama.available || health.ollama.models.length === 0) {
-    return { provider: 'openai' };
+    return selection;
   }
   if (health.ollama.models.includes(selection.model)) return selection;
   return { ...selection, model: health.ollama.models[0]! };

@@ -39,7 +39,13 @@ function fakeController() {
     capabilityGranted: vi.fn(),
     approveFallback: vi.fn(),
     requestExport: vi.fn(async () => undefined),
-    snapshot: vi.fn(() => ({ status: 'running' as const, plan: [], memorySummary: { recordCount: 2, issues: [] }, capability: 'dom_only' as const, timeline: [] })),
+    snapshot: vi.fn(() => ({
+      status: 'running' as const,
+      plan: [],
+      memorySummary: { recordCount: 2, issues: [] },
+      capability: 'dom_only' as const,
+      timeline: [],
+    })),
   };
 }
 
@@ -52,7 +58,10 @@ describe('panel bridge', () => {
     bridge.connect(first.background);
     const client = new ControllerClient(() => first.panel);
     client.connect((message) => messages.push(message));
-    expect(messages).toContainEqual({ type: 'state', task: expect.objectContaining({ status: 'running' }) });
+    expect(messages).toContainEqual({
+      type: 'state',
+      task: expect.objectContaining({ status: 'running' }),
+    });
 
     // Panel closed and reopened.
     first.drop();
@@ -61,7 +70,10 @@ describe('panel bridge', () => {
     const reopened = new ControllerClient(() => second.panel);
     const later: unknown[] = [];
     reopened.connect((message) => later.push(message));
-    expect(later).toContainEqual({ type: 'state', task: expect.objectContaining({ memorySummary: { recordCount: 2, issues: [] } }) });
+    expect(later).toContainEqual({
+      type: 'state',
+      task: expect.objectContaining({ memorySummary: { recordCount: 2, issues: [] } }),
+    });
   });
 
   it('routes validated panel messages to the controller and drops invalid ones', () => {
@@ -77,7 +89,11 @@ describe('panel bridge', () => {
     panel.postMessage({ type: 'instruct', text: 'x'.repeat(10_000), source: 'text' });
     panel.postMessage({ type: 'run_script', code: 'alert(1)' });
     expect(controller.instruct).toHaveBeenCalledTimes(1);
-    expect(controller.instruct).toHaveBeenCalledWith('only include remote roles', 'voice', undefined);
+    expect(controller.instruct).toHaveBeenCalledWith(
+      'only include remote roles',
+      'voice',
+      undefined,
+    );
     expect(controller.confirm).toHaveBeenCalledWith('preview_1', true);
     expect(controller.control).toHaveBeenCalledWith('stop');
   });
@@ -117,4 +133,62 @@ describe('panel bridge', () => {
     expect(messages.length).toBeGreaterThan(before);
     vi.useRealTimers();
   });
+});
+
+it('routes scheduled instructions and cancellation through the persisted queue after hydration', async () => {
+  const controller = fakeController();
+  const schedules = {
+    ready: Promise.resolve(),
+    instruct: vi.fn(async () => true),
+    snapshot: () => [],
+    cancel: vi.fn(async () => {}),
+  };
+  const bridge = createPanelBridge(controller, schedules);
+  const { background, panel } = pair();
+  background.sender = { url: 'chrome-extension://test/sidepanel.html?view=fullpage' };
+  bridge.connect(background);
+  const client = new ControllerClient(() => panel);
+  const messages: unknown[] = [];
+  client.connect((message) => messages.push(message));
+  client.instruct('in 10 minutes, check this page', 'voice', 4);
+  client.cancelSchedule('job1');
+  await vi.waitFor(() =>
+    expect(schedules.instruct).toHaveBeenCalledWith('in 10 minutes, check this page', 4),
+  );
+  expect(controller.instruct).not.toHaveBeenCalled();
+  expect(schedules.cancel).toHaveBeenCalledWith('job1');
+  expect(messages).toContainEqual({ type: 'schedules', jobs: [] });
+  schedules.instruct.mockResolvedValue(false);
+  client.instruct('schedule a meeting on my calendar', 'text', 4);
+  await vi.waitFor(() =>
+    expect(controller.instruct).toHaveBeenCalledWith(
+      'schedule a meeting on my calendar',
+      'text',
+      4,
+    ),
+  );
+});
+
+it('does not expose schedule logs or management to compact panels', async () => {
+  const schedules = {
+    ready: Promise.resolve(),
+    instruct: vi.fn(async () => false),
+    snapshot: () => [],
+    cancel: vi.fn(async () => {}),
+    manage: vi.fn(async () => {}),
+  };
+  const bridge = createPanelBridge(fakeController(), schedules);
+  const { background, panel } = pair();
+  background.sender = { url: 'chrome-extension://test/sidepanel.html' };
+  bridge.connect(background);
+  const messages: unknown[] = [];
+  const client = new ControllerClient(() => panel);
+  client.connect((message) => messages.push(message));
+  client.cancelSchedule('job1');
+  client.manageSchedule('job1', 'delete');
+  bridge.emit({ type: 'schedules', jobs: [] });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(schedules.cancel).not.toHaveBeenCalled();
+  expect(schedules.manage).not.toHaveBeenCalled();
+  expect(messages).not.toContainEqual({ type: 'schedules', jobs: [] });
 });

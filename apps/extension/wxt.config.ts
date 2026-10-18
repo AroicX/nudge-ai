@@ -30,7 +30,16 @@ function requirePairingSecret() {
 
 // `debugger` cannot be an optional permission in Chrome. It is used only for trusted
 // pointer/keyboard input on the task's own tab, attached on demand and detached afterwards.
-const permissions = ['activeTab', 'scripting', 'sidePanel', 'storage', 'tabs', 'debugger'];
+const permissions = [
+  'activeTab',
+  'scripting',
+  'sidePanel',
+  'alarms',
+  'storage',
+  'tabs',
+  'debugger',
+  'system.display',
+];
 
 // E2E builds (WXT_PUBLIC_NUDGE_E2E=1) expose test hooks in the side panel and go to a separate folder.
 const e2e = process.env.WXT_PUBLIC_NUDGE_E2E === '1';

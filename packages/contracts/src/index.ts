@@ -11,3 +11,4 @@ export * from './tools';
 export * from './observation';
 export * from './agent';
 export * from './controller-messages';
+export * from './memory';

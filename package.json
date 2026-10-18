@@ -9,6 +9,7 @@
     "pnpm": ">=11.1.0"
   },
   "scripts": {
+    "start:server": "pnpm --filter @nudge/server start",
     "dev:extension": "pnpm --filter @nudge/extension dev",
     "dev:server": "pnpm --filter @nudge/server dev",
     "dev:fixtures": "pnpm --filter @nudge/fixtures dev",

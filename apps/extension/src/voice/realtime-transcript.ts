@@ -41,7 +41,7 @@ export class RealtimeTranscriptReducer {
     );
     const text = interrupted
       ? 'Reply interrupted'
-      : event.final
+      : event.final || event.replace
         ? event.text
         : `${existing?.text ?? ''}${event.text}`;
     const update: VoiceTranscriptUpdate = {

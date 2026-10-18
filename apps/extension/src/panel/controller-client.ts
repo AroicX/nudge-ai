@@ -47,6 +47,8 @@ export class ControllerClient {
   instruct(text: string, source: 'text' | 'voice', originTabId?: number): void {
     this.#send({ type: 'instruct', text: text.slice(0, 4_000), source, ...(originTabId !== undefined ? { originTabId } : {}) });
   }
+  cancelSchedule(id: string): void { this.#send({ type: 'cancel_schedule', id }); }
+  manageSchedule(id: string, action: 'run' | 'delete' | 'update', changes: { instruction?: string; runAt?: number } = {}): void { this.#send({ type: 'manage_schedule', id, action, ...changes }); }
   control(action: 'stop' | 'pause' | 'resume' | 'continue_budget'): void {
     this.#send({ type: 'control', action });
   }

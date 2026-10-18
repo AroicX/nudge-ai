@@ -178,6 +178,8 @@ export const PlannerRequestSchema = z
       .optional(),
     capabilities: CapabilitiesSchema,
     notes: z.array(z.string().min(1).max(1_000)).max(20),
+    referenceContext: z.string().max(4000).optional(),
+    currentTime: z.string().max(150).optional(),
   })
   .strict();
 
@@ -193,6 +195,7 @@ export const PlannerResponseSchema = z
 
 export const ScopeRequestSchema = z
   .object({
+    originTabId: z.number().int().nonnegative().optional(),
     requestId: z.string().min(1).max(120),
     instruction: z.string().min(1).max(4_000),
     tabs: z

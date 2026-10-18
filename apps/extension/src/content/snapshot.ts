@@ -1,3 +1,4 @@
+import { contentRandomUUID } from './random-id';
 import type { PageElement, PageSnapshot } from '@nudge/contracts';
 
 import { redactText } from '@nudge/core';
@@ -171,7 +172,7 @@ export function captureSnapshot(
   });
 
   return {
-    snapshotId: `snap_${crypto.randomUUID()}`,
+    snapshotId: `snap_${contentRandomUUID()}`,
     documentId,
     capturedAt: new Date().toISOString(),
     url: window.location.href,

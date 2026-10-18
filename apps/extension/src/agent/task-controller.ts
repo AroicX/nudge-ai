@@ -23,6 +23,7 @@ import {
 import {
   ActionScheduler,
   DEFAULT_BUDGET,
+  directDestination,
   RecordStore,
   addConstraint,
   addIssue,
@@ -61,6 +62,7 @@ import type {
   ScreenshotPort,
   TabsPort,
 } from './ports';
+import { parseNativeBrowserCommand, type NativeBrowserCommand } from '../tabs/native-browser';
 
 export interface OtpTransferPort {
   transfer(input: {
@@ -89,6 +91,11 @@ export interface ControllerDeps {
   capabilities: () => { vision: boolean };
   id?: () => string;
   limits?: { maxCalls: number; maxMs: number };
+  nativeBrowser?: (
+    command: NativeBrowserCommand,
+    originTabId: number | undefined,
+    signal: AbortSignal,
+  ) => Promise<string>;
 }
 
 interface Task {
@@ -113,11 +120,19 @@ interface Task {
   sources: Map<string, TabReference>;
   fallbackOffer?: { reason: string } | undefined;
   useOpenAI: boolean;
+  provider?: 'openai' | 'ollama' | undefined;
   report?: FinalReport | undefined;
+  cancellationRequested?: boolean;
+  finishing?: { outcome: FinalReport['outcome'] };
   timeline: TimelineStep[];
+  startedAt: number;
+  completedAt?: number;
+  rejectedFinishes: number;
   notes: string[];
   lastResult?: PlannerRequest['lastResult'];
   repeatNotes: number;
+  policyBlockContext?: string | undefined;
+  policyBlockCounts: Map<string, number>;
   timedRepeatId?: string | undefined;
   observedUrls: Set<string>;
   userTypedUrls: string[];
@@ -192,6 +207,7 @@ export class TaskController {
   #planAbort: AbortController | undefined;
   #capability: 'dom_only' | 'dom_plus_trusted_input' = 'dom_only';
   #recordsKey = 0;
+  #starting: Promise<void> | undefined;
 
   constructor(private readonly deps: ControllerDeps) {}
 
@@ -210,6 +226,8 @@ export class TaskController {
     }
     return {
       taskId: task.id,
+      startedAt: task.startedAt,
+      ...(task.completedAt !== undefined ? { completedAt: task.completedAt } : {}),
       status: task.status,
       goal: task.memory.goal,
       plan: task.memory.plan,
@@ -231,9 +249,61 @@ export class TaskController {
     while (this.#loop) await this.#loop;
   }
 
+  async startScheduled(input: {
+    id: string;
+    instruction: string;
+    originTabId: number;
+    provider: 'openai' | 'ollama';
+    prepare?: () => Promise<void>;
+  }): Promise<'started' | 'busy'> {
+    if (this.#starting || (this.#task && !isTerminal(this.#task.status))) return 'busy';
+    await this.#start(input.instruction, input.originTabId, input);
+    return 'started';
+  }
+
   async instruct(text: string, source: 'text' | 'voice', originTabId?: number): Promise<void> {
+    // Startup may be waiting on a model or native browser API. Do not queue Stop behind it.
+    const startingTask = this.#task;
+    if (this.#starting && startingTask && !isTerminal(startingTask.status)) {
+      const early = classifyInstruction(text, {
+        taskActive: true,
+        confirmationPending: false,
+        tabTitles: [],
+      });
+      if (
+        early.kind === 'stop' ||
+        (early.kind === 'pause' && parseNativeBrowserCommand(startingTask.instruction))
+      ) {
+        await this.#cancel(
+          early.kind === 'stop'
+            ? 'Stopped at your request.'
+            : 'Browser control cancelled at your pause request. Already applied changes remain.',
+        );
+        return;
+      }
+    }
+    if (this.#starting) await this.#starting;
     const task = this.#task;
     const active = task && !isTerminal(task.status);
+    if (
+      task?.status === 'cancelled' &&
+      parseNativeBrowserCommand(task.instruction) &&
+      classifyInstruction(text, { taskActive: true, confirmationPending: false, tabTitles: [] })
+        .kind === 'resume'
+    ) {
+      this.deps.emit({
+        type: 'milestone',
+        text: 'That browser control was cancelled. Send the browser command again to retry.',
+      });
+      return;
+    }
+    if (active && parseNativeBrowserCommand(text)) {
+      this.deps.emit({
+        type: 'milestone',
+        text: 'Stop or finish the current task before changing browser controls.',
+      });
+      return;
+    }
     const classified = classifyInstruction(text, {
       taskActive: Boolean(active),
       confirmationPending: task?.status === 'waiting_for_confirmation',
@@ -242,6 +312,14 @@ export class TaskController {
     if (!active || !task) {
       if (classified.kind === 'stop') return;
       await this.#start(text, originTabId);
+      return;
+    }
+    if (
+      originTabId !== undefined &&
+      /\b(?:(?:this|current) (?:page|tab)|page I(?:'m| am) (?:looking at|on))\b/i.test(text) &&
+      ['correction', 'new_task', 'tab_correction'].includes(classified.kind)
+    ) {
+      await this.#tabCorrection(originTabId, undefined, text);
       return;
     }
     if (
@@ -300,6 +378,12 @@ export class TaskController {
       return;
     }
     if (action === 'pause') {
+      if (parseNativeBrowserCommand(task.instruction)) {
+        void this.#cancel(
+          'Browser control cancelled at your pause request. Already applied changes remain.',
+        );
+        return;
+      }
       this.#scheduler.bumpGeneration();
       this.#planAbort?.abort();
       this.#set('pause');
@@ -425,6 +509,7 @@ export class TaskController {
         checkpoint.memory.tabs.find((tab) => tab.role === 'origin')?.tabId ??
         0,
       status: 'paused',
+      provider: checkpoint.provider ?? this.deps.provider(),
     });
     this.#task.notes.push(
       'Nudge restarted. Re-check the page; do not repeat an action whose outcome is uncertain without verifying it first.',
@@ -444,6 +529,7 @@ export class TaskController {
     records: RecordStore;
     boundTabId: number;
     status: TaskStatus;
+    provider?: 'openai' | 'ollama' | undefined;
   }): Task {
     return {
       ...input,
@@ -453,8 +539,11 @@ export class TaskController {
       wantScreenshot: false,
       useOpenAI: false,
       timeline: [],
+      startedAt: this.deps.clock(),
+      rejectedFinishes: 0,
       notes: [],
       repeatNotes: 0,
+      policyBlockCounts: new Map(),
       observedUrls: new Set(),
       sources: new Map(),
       userTypedUrls: input.instruction.match(URL_IN_TEXT) ?? [],
@@ -466,14 +555,33 @@ export class TaskController {
     };
   }
 
-  async #start(instruction: string, originTabId?: number): Promise<void> {
+  #start(
+    instruction: string,
+    originTabId?: number,
+    scheduled?: { id: string; provider: 'openai' | 'ollama'; prepare?: () => Promise<void> },
+  ): Promise<void> {
+    // Reserve synchronously; preparation can change the backend's selected provider.
+    const starting = Promise.resolve().then(async () => {
+      await scheduled?.prepare?.();
+      await this.#initialize(instruction, originTabId, scheduled);
+    });
+    this.#starting = starting;
+    return starting.finally(() => {
+      if (this.#starting === starting) this.#starting = undefined;
+    });
+  }
+
+  async #initialize(
+    instruction: string,
+    originTabId?: number,
+    scheduled?: { id: string; provider: 'openai' | 'ollama' },
+  ): Promise<void> {
     if (this.#task) this.#teardown(this.#task);
     await this.idle();
-    const id = this.deps.id?.() ?? `task_${crypto.randomUUID()}`;
+    const id = scheduled?.id ?? this.deps.id?.() ?? `task_${crypto.randomUUID()}`;
     this.#scheduler = new ActionScheduler(this.deps.clock);
     const tabs = await this.deps.tabs.list();
-    const origin =
-      tabs.find((tab) => tab.tabId === originTabId) ?? tabs.find((tab) => tab.active) ?? tabs[0];
+    const origin = tabs.find((tab) => tab.tabId === originTabId);
     const placeholder: AuthorizationRecord = {
       taskId: id,
       instruction,
@@ -491,12 +599,45 @@ export class TaskController {
       records: new RecordStore([]),
       boundTabId: origin?.tabId ?? 0,
       status: 'planning',
+      provider: scheduled?.provider ?? this.deps.provider(),
     });
     task.tabs = tabs;
     this.#task = task;
     this.#watchTabs(task);
     this.#timeline(task, 'scope', 'Understanding your request', 'active');
     this.#broadcast();
+    const nativeCommand = parseNativeBrowserCommand(instruction);
+    if (nativeCommand) {
+      const abort = new AbortController();
+      this.#planAbort = abort;
+      this.#timeline(task, 'scope', 'Understood the browser command', 'completed');
+      this.#set('plan_ready');
+      if (origin) task.sources.set(origin.url, origin);
+      try {
+        if (!this.deps.nativeBrowser)
+          throw new Error('Browser controls are unavailable. Reload the extension and try again.');
+        const result = await this.deps.nativeBrowser(nativeCommand, originTabId, abort.signal);
+        if (abort.signal.aborted || this.#task !== task || isTerminal(task.status)) return;
+        task.memory = appendStep(task.memory, {
+          tool: 'native_browser',
+          summary: result,
+          ok: true,
+          evidence: result,
+        });
+        await this.#finishTask('completed', result);
+      } catch (error) {
+        if (abort.signal.aborted || this.#task !== task || isTerminal(task.status)) return;
+        await this.#finishTask(
+          'failed',
+          error instanceof Error ? error.message : 'The browser control did not finish.',
+        );
+      }
+      return;
+    }
+    if (!origin && directDestination(instruction)) {
+      await this.#openWithoutSource(task, directDestination(instruction)!);
+      return;
+    }
     if (!origin) {
       await this.#finishTask('failed', 'There is no ordinary web page open for Nudge to work in.');
       return;
@@ -509,12 +650,13 @@ export class TaskController {
         {
           requestId: crypto.randomUUID(),
           instruction,
+          originTabId: origin.tabId,
           tabs: tabs.map(({ tabId, title, url }) => ({ tabId, title, url })),
         },
         abort.signal,
         this.#providerOverride(task),
       );
-      if (this.#task !== task || isTerminal(task.status)) return;
+      if (abort.signal.aborted || this.#task !== task || isTerminal(task.status)) return;
       task.authorization = sanitizeAuthorization(scope.proposal, instruction, id);
       task.memory = { ...task.memory, goal: scope.goal, recordFields: scope.recordFields ?? [] };
       task.records = new RecordStore(scope.recordFields ?? []);
@@ -523,11 +665,66 @@ export class TaskController {
       await this.#checkpoint(task);
       this.#kick();
     } catch (error) {
-      if (this.#task !== task || isTerminal(task.status)) return;
+      if (abort.signal.aborted || this.#task !== task || isTerminal(task.status)) return;
       if (this.#offerFallback(task, error)) return;
       await this.#finishTask(
         'failed',
         error instanceof Error ? error.message : 'Nudge could not understand the request.',
+      );
+    }
+  }
+
+  /** Exact destination requests need no readable source page. Verify with Chrome's live URL. */
+  async #openWithoutSource(task: Task, destination: string): Promise<void> {
+    task.authorization = sanitizeAuthorization(
+      {
+        origins: [new URL(destination).origin],
+        categories: ['read', 'navigate'],
+        destinations: [],
+        exclusions: [],
+        limits: {},
+      },
+      task.instruction,
+      task.id,
+    );
+    this.#set('plan_ready');
+    const call: ToolCall = { tool: 'open_tab', url: destination };
+    const policy = this.#policy(task, call, { requestId: crypto.randomUUID(), toolCall: call });
+    if (policy.decision !== 'allow') {
+      await this.#finishTask(
+        'failed',
+        policy.decision === 'clarify' ? policy.question : policy.reason,
+      );
+      return;
+    }
+    try {
+      const outcome = await this.#scheduler.run({ fingerprint: fingerprintOf(call) }, () =>
+        this.#execute(task, call),
+      );
+      if (this.#task !== task || isTerminal(task.status) || outcome.status !== 'done') return;
+      const opened = (await this.deps.tabs.list()).find((tab) => tab.tabId === task.boundTabId);
+      if (!opened || opened.url !== destination) {
+        await this.#finishTask(
+          'failed',
+          'The tab opened, but I could not verify the requested destination.',
+        );
+        return;
+      }
+      task.sources.set(opened.url, opened);
+      task.memory = addSource(task.memory, opened.url);
+      task.memory = appendStep(task.memory, {
+        tool: 'open_tab',
+        summary: `Opened ${opened.domain}`,
+        ok: true,
+        evidence: `Chrome reports ${opened.url}`,
+      });
+      this.#timeline(task, 'scope', 'Understood the request', 'completed');
+      await this.#finishTask('completed', `${opened.domain} is open.`);
+    } catch (error) {
+      if (this.#task !== task || isTerminal(task.status)) return;
+      await this.#finishTask(
+        'failed',
+        error instanceof Error ? error.message : 'Could not open the destination.',
       );
     }
   }
@@ -578,6 +775,7 @@ export class TaskController {
   async #cancel(summary: string): Promise<void> {
     const task = this.#task;
     if (!task || isTerminal(task.status)) return;
+    task.cancellationRequested = true;
     this.#scheduler.bumpGeneration();
     this.#planAbort?.abort();
     await this.#stopTimed(task);
@@ -596,8 +794,20 @@ export class TaskController {
   async #finishTask(outcome: FinalReport['outcome'], summary: string): Promise<void> {
     const task = this.#task;
     if (!task || isTerminal(task.status)) return;
+    if ((task.cancellationRequested || task.finishing) && outcome !== 'cancelled') return;
+    if (outcome === 'cancelled') task.cancellationRequested = true;
+    // Cancellation can replace a pending success/failure, never the other way around.
+    const finishing = { outcome };
+    task.finishing = finishing;
     this.deps.otp.cancelAll();
     await this.deps.cdp?.detach().catch(() => undefined);
+    if (
+      this.#task !== task ||
+      isTerminal(task.status) ||
+      task.finishing !== finishing ||
+      (task.cancellationRequested && outcome !== 'cancelled')
+    )
+      return;
     const report = buildReport(task.memory, task.records.list(), outcome, summary, task.exports);
     report.skipped = [...report.skipped, ...task.skipped].slice(-100);
     if (outcome === 'partially_completed') {
@@ -617,6 +827,7 @@ export class TaskController {
       cancelled: 'cancel',
     }[outcome] as TaskEvent;
     task.status = transition(task.status, event);
+    task.completedAt = this.deps.clock();
     this.#timeline(task, 'final', summary, outcome === 'failed' ? 'error' : 'completed');
     this.#teardown(task);
     await this.deps.checkpoints.clear().catch(() => undefined);
@@ -683,6 +894,7 @@ export class TaskController {
     const abort = new AbortController();
     this.#planAbort = abort;
     this.#timeline(task, `plan_${task.stepCount}`, 'Choosing the next step', 'active');
+    this.#broadcast();
     try {
       response = await this.deps.planner.plan(request, abort.signal, this.#providerOverride(task));
     } catch (error) {
@@ -699,16 +911,12 @@ export class TaskController {
       );
       return;
     }
-    task.timeline = task.timeline.filter((item) => item.id !== `${task.id}:plan_${task.stepCount}`);
+    this.#timeline(task, `plan_${task.stepCount}`, 'Chose the next step', 'completed');
     task.stepCount += 1;
     if (response.planUpdate) {
-      const before = task.memory.plan;
       task.memory = applyPlanUpdate(task.memory, response.planUpdate);
-      for (const item of response.planUpdate) {
-        const previous = before.find((candidate) => candidate.id === item.id);
-        if (item.status === 'done' && previous?.status !== 'done')
-          this.deps.emit({ type: 'milestone', text: item.text });
-      }
+      // A model-authored "done" flag is not a verified action. Spoken completion
+      // comes only from the controller's checked final report, never this plan.
     }
     await this.#dispatch(task, response, observation);
     await this.#checkpoint(task);
@@ -933,12 +1141,96 @@ export class TaskController {
           (item) => item.status === 'pending' || item.status === 'active',
         );
         const inaccessible = task.memory.issues.some((issue) => /could not be read/i.test(issue));
+        // A planner claim is not verification. Accept concrete observed text for
+        // read-only answers, or the evidence recorded by our action verifier.
+        const observed = observation?.snapshot;
+        const pageEvidence = observed
+          ? [
+              observed.url,
+              observed.title,
+              ...observed.text,
+              ...observed.elements.flatMap((element) => [
+                element.name,
+                element.text,
+                element.value,
+              ]),
+            ]
+              .filter(Boolean)
+              .join('\n')
+              .toLowerCase()
+          : '';
+        const groundedEvidence = call.evidence.filter(
+          (evidence) =>
+            evidence.trim().length >= 3 && pageEvidence.includes(evidence.trim().toLowerCase()),
+        );
+        const verifiedAction = task.memory.steps.some((step) => step.ok && step.evidence);
+        const navigationTarget = task.instruction
+          .match(
+            /^\s*(?:(?:please|can you|could you)\s+)*(?:open|visit|go to|navigate to|take me to)\s+(.+?)[.!?]*$/i,
+          )?.[1]
+          ?.replace(/\s+in (?:a |the )?(?:new|current|this) tab$/i, '')
+          .trim();
+        const verifiedNavigation = task.memory.steps.some(
+          (step) =>
+            step.ok &&
+            step.evidence &&
+            (['navigate', 'open_tab', 'activate_tab', 'go_back', 'go_forward'].includes(
+              step.tool,
+            ) ||
+              step.evidence.startsWith('Now at ')),
+        );
+        let atRequestedDestination = false;
+        if (navigationTarget && observed) {
+          try {
+            const current = new URL(observed.url);
+            if (/^(?:https?:\/\/|[\w-]+\.)/i.test(navigationTarget)) {
+              const target = new URL(
+                /^https?:\/\//i.test(navigationTarget)
+                  ? navigationTarget
+                  : `https://${navigationTarget}`,
+              );
+              atRequestedDestination =
+                current.hostname === target.hostname &&
+                current.pathname.replace(/\/$/, '') === target.pathname.replace(/\/$/, '') &&
+                (!target.search || current.search === target.search);
+            } else {
+              // A site name must match a host label, not arbitrary page text
+              // (for example a Google result mentioning the requested site).
+              atRequestedDestination = current.hostname
+                .split('.')
+                .includes(navigationTarget.toLowerCase());
+            }
+          } catch {
+            /* An unfamiliar destination still requires verified navigation. */
+          }
+        }
+        const completionVerified = navigationTarget
+          ? verifiedNavigation || atRequestedDestination
+          : verifiedAction || groundedEvidence.length > 0;
+        if (!pending && !inaccessible && !completionVerified) {
+          task.rejectedFinishes += 1;
+          task.lastResult = {
+            tool: 'finish',
+            ok: false,
+            detail:
+              'Completion was not verified. Perform the requested action or provide exact evidence from the current observation. Scope understanding and a completion claim are not evidence.',
+          };
+          if (task.rejectedFinishes >= 2) {
+            await this.#finishTask(
+              'failed',
+              'I could not verify that the requested task was completed.',
+            );
+          }
+          return;
+        }
         if (task.snapshot) task.memory = addSource(task.memory, task.snapshot.url);
         task.memory = appendStep(task.memory, {
           tool: 'finish',
           summary: call.summary.slice(0, 1_000),
           ok: true,
-          ...(call.evidence[0] ? { evidence: call.evidence.join('; ').slice(0, 1_000) } : {}),
+          ...(groundedEvidence.length
+            ? { evidence: groundedEvidence.join('; ').slice(0, 1_000) }
+            : {}),
         });
         await this.#finishTask(
           pending || inaccessible ? 'partially_completed' : 'completed',
@@ -1128,8 +1420,51 @@ export class TaskController {
         'error',
         policy.reason,
       );
-      const fingerprint = fingerprintOf(call);
-      if (this.#scheduler.repeatCount(fingerprint) >= 2) this.#noteRepeat(task);
+      // Blocked calls never reach ActionScheduler.run(), so its mutation repeat counter
+      // cannot stop a planner repeatedly proposing the same denied operation.
+      const context = JSON.stringify([
+        task.boundTabId,
+        task.snapshot?.documentId,
+        task.authorization,
+        this.#scheduler.instructionVersion,
+      ]);
+      if (task.policyBlockContext !== context) {
+        task.policyBlockContext = context;
+        task.policyBlockCounts.clear();
+      }
+      // Ignore payload changes (such as a different search query) for the same denied target.
+      const targetKeys = [
+        'tabId',
+        'elementId',
+        'fromElementId',
+        'toElementId',
+        'url',
+        'sourceTabId',
+        'destinationTabId',
+        'destinationElementId',
+        'x',
+        'y',
+        'from',
+        'to',
+      ];
+      const target = Object.fromEntries(
+        targetKeys
+          .filter((key) => key in call)
+          .map((key) => [key, (call as unknown as Record<string, unknown>)[key]]),
+      );
+      const key = JSON.stringify([policy.reason, target]);
+      const count = (task.policyBlockCounts.get(key) ?? 0) + 1;
+      task.policyBlockCounts.set(key, count);
+      if (count >= 2) {
+        this.#askUser(
+          task,
+          `I could not complete “${label}”: ${policy.reason} I stopped repeating the blocked step. How would you like to proceed?`,
+        );
+      } else {
+        task.notes.push(
+          `This action was blocked: ${policy.reason} Choose a permitted alternative or report what remains; do not repeat the same blocked target.`,
+        );
+      }
     }
   }
 
@@ -1606,7 +1941,7 @@ export class TaskController {
   }
 
   #offerFallback(task: Task, error: unknown): boolean {
-    if (this.deps.provider() !== 'ollama' || task.useOpenAI) return false;
+    if ((this.#providerOverride(task) ?? this.deps.provider()) !== 'ollama') return false;
     const reason = error instanceof Error ? error.message : 'Ollama could not complete this step.';
     task.fallbackOffer = { reason: reason.slice(0, 1_000) };
     task.pendingQuestion =
@@ -1616,8 +1951,8 @@ export class TaskController {
     return true;
   }
 
-  #providerOverride(task: Task): 'openai' | undefined {
-    return task.useOpenAI ? 'openai' : undefined;
+  #providerOverride(task: Task): 'openai' | 'ollama' | undefined {
+    return task.useOpenAI ? 'openai' : task.provider;
   }
 
   #export(task: Task, format: 'csv' | 'xlsx'): void {
@@ -1657,8 +1992,13 @@ export class TaskController {
     status: TimelineStep['status'],
     detail?: string,
   ): void {
+    const key = `${task.id}:${id}`.slice(0, 120);
+    const previous = task.timeline.find((item) => item.id === key);
+    const now = this.deps.clock();
     const step: TimelineStep = {
-      id: `${task.id}:${id}`.slice(0, 120),
+      id: key,
+      startedAt: previous?.startedAt ?? now,
+      ...(['completed', 'error'].includes(status) ? { completedAt: now } : {}),
       label: label.slice(0, 500) || 'Step',
       status,
       ...(detail ? { detail: detail.slice(0, 2_000) } : {}),
@@ -1680,6 +2020,7 @@ export class TaskController {
           instructionVersion: this.#scheduler.instructionVersion,
           inFlight,
           boundTabId: task.boundTabId,
+          provider: this.#providerOverride(task),
         }),
       )
       .catch(() => undefined);

@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import { z } from 'zod';
 import type { LocalVoiceService } from '../voice/local-voice';
@@ -41,10 +42,42 @@ export function registerLocalVoiceRoutes(app: FastifyInstance, options: {
   };
   const protectedRoute = { preHandler: options.authenticate, config: { rateLimit: { max: 120, timeWindow: '1 minute' } } };
   app.get('/api/local-voice/health', protectedRoute, (request, reply) => run('health', request, reply, (signal) => options.service.health(signal)));
+  app.post('/api/local-voice/prepare', protectedRoute, (request, reply) => run('chat', request, reply, async (signal) => {
+    await options.service.prepare(signal);
+    return { ready: true };
+  }));
   app.post('/api/local-voice/chat', protectedRoute, async (request, reply) => {
     const input = ChatSchema.safeParse(request.body);
     if (!input.success) return reply.code(400).send({ error: 'Invalid local conversation.' });
     return run('chat', request, reply, async (signal) => ({ text: await options.service.chat(input.data.messages, signal) }));
+  });
+  app.post('/api/local-voice/chat-stream', protectedRoute, async (request, reply) => {
+    const input = ChatSchema.safeParse(request.body);
+    if (!input.success) return reply.code(400).send({ error: 'Invalid local conversation.' });
+    if (busy.has('chat')) return reply.code(429).send({ error: 'Local voice is busy. Please try again.' });
+    busy.add('chat');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error('timeout')), options.timeoutMs);
+    let cleaned = false;
+    const close = () => { controller.abort(); cleanup(); };
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      clearTimeout(timer); busy.delete('chat'); reply.raw.off('close', close);
+    };
+    reply.raw.on('close', close);
+    const messages = input.data.messages;
+    async function* stream() {
+      try {
+        for await (const text of options.service.chatStream(messages, controller.signal)) {
+          yield JSON.stringify({ text }) + '\n';
+        }
+        yield JSON.stringify({ done: true }) + '\n';
+      } catch {
+        yield JSON.stringify({ error: 'Local voice interrupted or unavailable.' }) + '\n';
+      } finally { cleanup(); }
+    }
+    return reply.type('application/x-ndjson').header('cache-control', 'no-store').send(Readable.from(stream()));
   });
   app.post('/api/local-voice/speech', protectedRoute, async (request, reply) => {
     const input = SpeechSchema.safeParse(request.body);

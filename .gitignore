@@ -13,3 +13,6 @@ test-results/
 .DS_Store
 .output-e2e/
 .pnpm-store/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

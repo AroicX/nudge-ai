@@ -1,7 +1,13 @@
-import { PanelMessageSchema, type ControllerMessage, type ControllerSnapshot } from '@nudge/contracts';
+import {
+  PanelMessageSchema,
+  type ControllerMessage,
+  type ControllerSnapshot,
+  type ScheduledTask,
+} from '@nudge/contracts';
 
 export interface PortLike {
   name: string;
+  sender?: { url?: string };
   postMessage(message: unknown): void;
   onMessage: { addListener(listener: (message: unknown) => void): void };
   onDisconnect: { addListener(listener: () => void): void };
@@ -19,9 +25,23 @@ export interface ControllerSurface {
 }
 
 /** Background side of the side-panel Port. Validates every panel message before it reaches the controller. */
-export function createPanelBridge(controller: ControllerSurface) {
+export function createPanelBridge(
+  controller: ControllerSurface,
+  schedules?: {
+    ready: Promise<void>;
+    instruct(text: string, originTabId?: number): Promise<boolean>;
+    snapshot(): ScheduledTask[];
+    cancel(id: string): Promise<void>;
+    manage?(id: string, action: 'run' | 'delete' | 'update', changes: { instruction?: string; runAt?: number }): Promise<void>;
+  },
+) {
   const ports = new Set<PortLike>();
+  const fullPage = (port: PortLike) => {
+    try { const url = new URL(port.sender?.url ?? ''); return url.protocol === 'chrome-extension:' && url.pathname === '/sidepanel.html' && url.searchParams.get('view') === 'fullpage'; }
+    catch { return false; }
+  };
   const post = (port: PortLike, message: ControllerMessage) => {
+    if (message.type === 'schedules' && !fullPage(port)) return;
     try {
       port.postMessage(message);
     } catch {
@@ -40,9 +60,41 @@ export function createPanelBridge(controller: ControllerSurface) {
         switch (message.type) {
           case 'hello':
             post(port, { type: 'state', task: controller.snapshot() });
+            if (schedules)
+              void schedules.ready.then(() =>
+                post(port, { type: 'schedules', jobs: schedules.snapshot() }),
+              );
             return;
           case 'instruct':
-            void controller.instruct(message.text, message.source, message.originTabId);
+            if (schedules)
+              void schedules.ready
+                .then(async () => {
+                  if (!(await schedules.instruct(message.text, message.originTabId)))
+                    await controller.instruct(message.text, message.source, message.originTabId);
+                })
+                .catch(() =>
+                  post(port, {
+                    type: 'milestone',
+                    text: 'Could not save or start the task. Please try again.',
+                  }),
+                );
+            else void controller.instruct(message.text, message.source, message.originTabId);
+            return;
+          case 'cancel_schedule':
+            if (!fullPage(port)) { post(port, { type: 'milestone', text: 'Open Nudge full-screen to manage scheduled tasks.' }); return; }
+            if (schedules)
+              void schedules.ready
+                .then(() => schedules.cancel(message.id))
+                .catch(() =>
+                  post(port, {
+                    type: 'milestone',
+                    text: 'Could not cancel the scheduled task. Please try again.',
+                  }),
+                );
+            return;
+          case 'manage_schedule':
+            if (!fullPage(port)) { post(port, { type: 'milestone', text: 'Open Nudge full-screen to manage scheduled tasks.' }); return; }
+            if (schedules?.manage) void schedules.ready.then(() => schedules.manage!(message.id, message.action, { ...(message.instruction !== undefined ? { instruction: message.instruction } : {}), ...(message.runAt !== undefined ? { runAt: message.runAt } : {}) })).catch((error) => post(port, { type: 'milestone', text: error instanceof Error ? error.message : 'Could not update the scheduled task.' }));
             return;
           case 'control':
             controller.control(message.action);

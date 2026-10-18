@@ -1,11 +1,14 @@
 import type { VoiceSessionState } from '@nudge/contracts';
-import { AudioLines, Mic, MicOff, Send, Square, X } from 'lucide-react';
-import { type FormEvent } from 'react';
+import { ArrowUp, AudioLines, Mic, MicOff, Send, Square, X } from 'lucide-react';
+import { type FormEvent, type ReactNode } from 'react';
 
 import { VoiceWaveform } from './VoiceWaveform';
 
 export function Composer({
   busy,
+  allowUpdates = true,
+  fullPage = false,
+  modelSelector,
   voiceState,
   draft,
   showRealtimeVoice,
@@ -21,6 +24,9 @@ export function Composer({
   onInterruptVoice,
 }: {
   busy: boolean;
+  allowUpdates?: boolean;
+  fullPage?: boolean;
+  modelSelector?: ReactNode;
   voiceState: VoiceSessionState;
   draft: string;
   showRealtimeVoice: boolean;
@@ -38,6 +44,7 @@ export function Composer({
   const voiceActive = !['idle', 'ended', 'failed'].includes(voiceState);
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (busy && !allowUpdates) return;
     const value = draft.trim();
     if (!value) return;
     onSend(value);
@@ -49,17 +56,54 @@ export function Composer({
       {showRealtimeVoice && voiceActive ? (
         <VoiceWaveform state={voiceState} size={96} floating />
       ) : null}
-      <input
-        id="nudge-message"
-        aria-label="Tell Nudge what to do"
-        placeholder={busy ? 'Change or add to the task' : 'Ask Nudge to do something'}
-        autoComplete="off"
-        value={draft}
-        onChange={(event) => onDraftChange(event.target.value)}
-      />
+      {fullPage ? (
+        <textarea
+          id="nudge-message"
+          aria-label="Tell Nudge what to do"
+          placeholder={busy ? 'Change or add to the task' : 'Message Nudge…'}
+          rows={1}
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+      ) : (
+        <input
+          id="nudge-message"
+          aria-label="Tell Nudge what to do"
+          placeholder={busy ? 'Change or add to the task' : 'Ask Nudge to do something'}
+          autoComplete="off"
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
+        />
+      )}
+      {modelSelector ? <div className="composer__model">{modelSelector}</div> : null}
       <div className="composer__actions">
-        {voiceActive && onMuteVoice ? <button type="button" className="icon-button icon-button--quiet" aria-label={voiceMuted ? 'Unmute voice call' : 'Mute voice call'} aria-pressed={voiceMuted} onClick={onMuteVoice}>{voiceMuted ? <MicOff size={18} /> : <Mic size={18} />}</button> : null}
-        {voiceActive && voiceState === 'assistant-speaking' && onInterruptVoice ? <button type="button" className="icon-button icon-button--quiet" aria-label="Interrupt reply" onClick={onInterruptVoice}><Square size={15} /></button> : null}
+        {voiceActive && onMuteVoice ? (
+          <button
+            type="button"
+            className="icon-button icon-button--quiet"
+            aria-label={voiceMuted ? 'Unmute voice call' : 'Mute voice call'}
+            aria-pressed={voiceMuted}
+            onClick={onMuteVoice}
+          >
+            {voiceMuted ? <MicOff size={18} /> : <Mic size={18} />}
+          </button>
+        ) : null}
+        {voiceActive && voiceState === 'assistant-speaking' && onInterruptVoice ? (
+          <button
+            type="button"
+            className="icon-button icon-button--quiet"
+            aria-label="Interrupt reply"
+            onClick={onInterruptVoice}
+          >
+            <Square size={15} />
+          </button>
+        ) : null}
         <button
           type="button"
           className={`icon-button icon-button--quiet${dictating ? ' is-recording' : ''}`}
@@ -78,7 +122,7 @@ export function Composer({
           >
             <X size={18} />
           </button>
-        ) : showRealtimeVoice ? (
+        ) : showRealtimeVoice && !fullPage ? (
           <button
             type="button"
             className="icon-button icon-button--quiet"
@@ -90,9 +134,13 @@ export function Composer({
         ) : null}
         {busy ? (
           <>
-            {draft.trim() ? (
-              <button type="submit" className="icon-button icon-button--send" aria-label="Send update">
-                <Send size={18} />
+            {draft.trim() && allowUpdates ? (
+              <button
+                type="submit"
+                className="icon-button icon-button--send"
+                aria-label="Send update"
+              >
+                {fullPage ? <ArrowUp size={18} /> : <Send size={18} />}
               </button>
             ) : null}
             <button
@@ -111,7 +159,7 @@ export function Composer({
             aria-label="Send message"
             disabled={!draft.trim()}
           >
-            <Send size={18} />
+            {fullPage ? <ArrowUp size={18} /> : <Send size={18} />}
           </button>
         )}
       </div>

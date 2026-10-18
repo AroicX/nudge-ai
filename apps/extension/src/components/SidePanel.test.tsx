@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SidePanel } from './SidePanel';
@@ -74,6 +74,59 @@ describe('SidePanel', () => {
     expect(
       progress.compareDocumentPosition(assistantMessage) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it('keeps saved task progress before later casual messages and shows each task duration', () => {
+    render(
+      <SidePanel
+        fullPage
+        busy={false}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+        conversation={[
+          {
+            id: 'one',
+            role: 'user',
+            text: 'Find a phone',
+            createdAt: '2026-10-15',
+            progress: {
+              taskId: 'a',
+              status: 'completed',
+              startedAt: 1000,
+              completedAt: 6000,
+              steps: [{ id: 'a1', label: 'Found phone', status: 'completed' }],
+            },
+          },
+          { id: 'chat', role: 'user', text: 'Thanks', createdAt: '2026-10-15' },
+          {
+            id: 'two',
+            role: 'user',
+            text: 'Find a kettle',
+            createdAt: '2026-10-15',
+            progress: {
+              taskId: 'b',
+              status: 'completed',
+              startedAt: 10000,
+              completedAt: 18000,
+              steps: [{ id: 'b1', label: 'Found kettle', status: 'completed' }],
+            },
+          },
+        ]}
+        timeline={[{ id: 'b1', label: 'Found kettle', status: 'completed' }]}
+      />,
+    );
+    const regions = screen.getAllByRole('region', { name: 'Action progress' });
+    expect(regions).toHaveLength(2);
+    expect(
+      regions[0]!.compareDocumentPosition(screen.getByText('Thanks')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getAllByLabelText('Task elapsed time').map((item) => item.textContent)).toEqual([
+      '5s',
+      '8s',
+    ]);
   });
 
   it('uses a single-line composer and sends typed text as a task update while work is active', () => {
@@ -330,4 +383,92 @@ describe('SidePanel', () => {
     expect(screen.getByText(/No Ollama models found/i)).toBeTruthy();
     expect(onProviderSelection).not.toHaveBeenCalled();
   });
+});
+
+it('keeps compact action progress free of elapsed-time labels', () => {
+  render(
+    <SidePanel
+      busy={false}
+      onSend={vi.fn()}
+      onStop={vi.fn()}
+      onSaveKey={vi.fn()}
+      onClearKey={vi.fn()}
+      conversation={[
+        {
+          id: 'a',
+          role: 'user',
+          text: 'Open the page',
+          createdAt: '2026-10-15',
+          progress: {
+            taskId: 'task-a',
+            status: 'completed',
+            startedAt: 0,
+            completedAt: 5000,
+            steps: [{ id: 's', label: 'Opened', status: 'completed' }],
+          },
+        },
+      ]}
+    />,
+  );
+  expect(screen.getByRole('region', { name: 'Action progress' })).toBeTruthy();
+  expect(screen.queryByLabelText('Task elapsed time')).toBeNull();
+});
+
+it('freezes interrupted historical progress while keeping the current controller task live', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(100_000);
+  const progress = {
+    taskId: 'old',
+    status: 'running' as const,
+    startedAt: 1000,
+    steps: [
+      {
+        id: 'done',
+        label: 'Read page',
+        status: 'completed' as const,
+        startedAt: 1000,
+        completedAt: 4000,
+      },
+      { id: 'active', label: 'Opening result', status: 'active' as const, startedAt: 5000 },
+    ],
+  };
+  const props = {
+    fullPage: true,
+    busy: false,
+    onSend: vi.fn(),
+    onStop: vi.fn(),
+    onSaveKey: vi.fn(),
+    onClearKey: vi.fn(),
+    conversation: [
+      { id: 'user', role: 'user' as const, text: 'Old task', createdAt: '2026-10-18', progress },
+    ],
+  };
+  try {
+    const { rerender } = render(<SidePanel {...props} />);
+    expect(screen.getByRole('button', { name: 'Task interrupted' })).toBeTruthy();
+    expect(screen.getByLabelText('Task elapsed time').textContent).toBe('4s');
+    act(() => vi.advanceTimersByTime(5000));
+    expect(screen.getByLabelText('Task elapsed time').textContent).toBe('4s');
+    expect(screen.queryByText('Task complete')).toBeNull();
+    expect(progress.status).toBe('running');
+    expect(progress.steps[1]!.status).toBe('active');
+    rerender(
+      <SidePanel
+        {...props}
+        controller={{
+          taskId: 'old',
+          status: 'running',
+          plan: [],
+          timeline: [],
+          memorySummary: { recordCount: 0, issues: [] },
+          capability: 'dom_only',
+        }}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Task interrupted' })).toBeNull();
+    act(() => vi.advanceTimersByTime(2000));
+    expect(screen.getByLabelText('Task elapsed time').textContent).toBe('106s');
+  } finally {
+    vi.useRealTimers();
+  }
 });
