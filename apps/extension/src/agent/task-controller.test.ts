@@ -51,6 +51,20 @@ function make(browser: FakeBrowser, planner: FakePlanner, extra: Partial<Control
 }
 
 describe('TaskController', () => {
+  it('uses saved documents when the user retries an application question', async () => {
+    const browser = new FakeBrowser().addTab(1, jobsPage());
+    const planner = new FakePlanner([
+      { toolCall: { tool: 'ask_user', question: 'What is your email?', missing: ['email'] } },
+      { toolCall: { tool: 'report_partial', done: ['stopped'], remaining: [], reason: 'done' } },
+    ]);
+    const { controller } = make(browser, planner);
+    await controller.instruct('apply for this job', 'text', 1);
+    await vi.waitFor(() => expect(controller.snapshot().status).toBe('waiting_for_user'));
+    await controller.instruct('Try again now', 'text', 1);
+    await vi.waitFor(() => expect(planner.requests.length).toBeGreaterThan(1));
+    expect(planner.requests.at(-1)?.notes.join('\n')).toMatch(/account documents/i);
+  });
+
   it('asks before a browser task can use API billing while ChatGPT plan text is selected', async () => {
     const browser = new FakeBrowser().addTab(1, jobsPage());
     const planner = new FakePlanner([{ toolCall: { tool: 'report_partial', done: [], remaining: ['done'], reason: 'stop' } }]);

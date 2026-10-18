@@ -108,7 +108,10 @@ export function registerAgentPlanRoutes(
             {
               ...input.data,
               // Only the paired local store supplies this field; clients cannot inject saved facts.
-              referenceContext: options.referenceContext?.(input.data.goal) ?? '',
+              referenceContext:
+                options.referenceContext?.(
+                  [input.data.goal, input.data.authorization.instruction, ...input.data.memory.constraints.map((item) => item.text)].join('\n'),
+                ) ?? '',
             currentTime: `${new Date().toISOString()} (local timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone})`,
             },
             signal,

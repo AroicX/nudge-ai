@@ -13,7 +13,7 @@ import { createRoot } from 'react-dom/client';
 import { fullPageUrl, readPageMode, resolvePageSource } from '../../src/panel/page-mode';
 import { MemoryClient } from '../../src/api/memory-client';
 import { useMemoryWorkspace } from '../../src/panel/use-memory-workspace';
-import { isConversationRequest } from '../../src/panel/message-routing';
+import { isContinuationRequest, isConversationRequest, resumeBrowserInstruction } from '../../src/panel/message-routing';
 import { openContinuationPanel } from '../../src/panel/continuation-panel';
 import { SidePanel } from '../../src/components/SidePanel';
 import { ServerClient } from '../../src/api/server-client';
@@ -250,9 +250,16 @@ function App() {
   };
 
   const instruct = async (text: string, source: 'text' | 'voice', recordTurn = true) => {
+    const snapshot = useNudgeStore.getState();
+    const previousBrowserTask = [...snapshot.conversation]
+      .reverse()
+      .find((turn) => turn.role === 'user' && turn.progress && !isContinuationRequest(turn.text))?.text;
+    const resumed = resumeBrowserInstruction(text, previousBrowserTask, snapshot.controller?.status);
+    const command = resumed ?? text;
     if (
       source === 'text' &&
-      isConversationRequest(text, useNudgeStore.getState().controller?.status)
+      !resumed &&
+      isConversationRequest(text, snapshot.controller?.status)
     ) {
       if (chatPending || chatAbort.current) return;
       if (!memory.activeId || memory.loading) {
@@ -402,7 +409,7 @@ function App() {
         );
         return;
       }
-      controller.instruct(text, source, linkedTab?.tabId);
+      controller.instruct(command, source, linkedTab?.tabId);
     } catch {
       useNudgeStore
         .getState()

@@ -62,6 +62,7 @@ import type {
   ScreenshotPort,
   TabsPort,
 } from './ports';
+import { isContinuationRequest } from '../panel/message-routing';
 import { parseNativeBrowserCommand, type NativeBrowserCommand } from '../tabs/native-browser';
 
 export interface OtpTransferPort {
@@ -315,6 +316,21 @@ export class TaskController {
     if (!active || !task) {
       if (classified.kind === 'stop') return;
       await this.#start(text, originTabId);
+      return;
+    }
+    if (isContinuationRequest(text) && task.status !== 'waiting_for_confirmation') {
+      const note =
+        'Continue on the current page from where you stopped. Use uploaded account documents and saved profile facts for form fields. Ask only for a field that is absent from those references.';
+      if (task.status === 'paused') {
+        task.notes.push(note);
+        this.control('resume');
+        return;
+      }
+      if (task.status === 'waiting_for_user' && !task.fallbackOffer) {
+        this.answer(note);
+        return;
+      }
+      this.#correct(note, source);
       return;
     }
     if (

@@ -13,7 +13,7 @@ Rules:
 - Never handle passwords, payment details or human-verification challenges; report them with report_partial or ask_user.
 - To copy a one-time code, use transfer_code; never read or type the code yourself.
 - Record collected items with record_items using only values present in the observation; use "unknown" when a field is not shown. Provide record fields as an array of {name, value}.
-- Ask the user (ask_user) only when essential information such as the destination spreadsheet or account is missing; do not ask permission for routine steps already covered by the user's request.
+- Ask the user (ask_user) only when essential information such as the destination spreadsheet or account is missing; do not ask permission for routine steps already covered by the user's request. When referenceContext includes an account document, type those saved values into an application or form. Do not ask the user to retype a value that is already in that document or in saved facts.
 - Set expectation to an observable result (text_present, url_changed, value_equals, count_changed) so Nudge can verify progress.
 - Finish with finish only when the observation shows the outcome; cite evidence. If blocked or out of budget, use report_partial with what was done and what remains.
 - If notes say an action repeated without progress, choose a different approach.`;
