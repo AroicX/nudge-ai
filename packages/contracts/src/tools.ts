@@ -137,6 +137,16 @@ export const DomToolCallSchema = z.discriminatedUnion('tool', [
   z.object({ tool: z.literal('select_option'), ...element, value: z.string().min(1).max(1_000) }).strict(),
   z
     .object({
+      tool: z.literal('choose_option'),
+      ...element,
+      /** Visible option text to pick (custom dropdown, combobox, autocomplete, listbox). */
+      value: z.string().min(1).max(500),
+      /** Text to type first when the control filters options as you type (autocomplete). */
+      query: z.string().min(1).max(500).optional(),
+    })
+    .strict(),
+  z
+    .object({
       tool: z.literal('scroll'),
       tabId: TabId,
       direction: ScrollDirectionSchema,
@@ -176,6 +186,43 @@ export const ToolCallSchema = z.discriminatedUnion('tool', [
   z.object({ tool: z.literal('drag_at'), ...visual, from: Point, to: Point }).strict(),
   z
     .object({ tool: z.literal('type_at'), ...visual, x: Coord, y: Coord, text: z.string().min(1).max(5_000) })
+    .strict(),
+  // Candidate profile (saved account documents and profile facts; read-only)
+  z.object({ tool: z.literal('get_candidate_profile') }).strict(),
+  z.object({ tool: z.literal('search_cv'), query: z.string().min(1).max(300) }).strict(),
+  z.object({ tool: z.literal('list_documents') }).strict(),
+  z
+    .object({
+      tool: z.literal('attach_document'),
+      ...element,
+      /** Omit to use the selected/default CV. */
+      documentId: z.string().min(1).max(160).optional(),
+    })
+    .strict(),
+  // Calendar (browser UI; no Calendar API)
+  z
+    .object({
+      tool: z.literal('calendar_open_event_editor'),
+      tabId: TabId,
+      title: z.string().min(1).max(300),
+      /** YYYY-MM-DD, or the user's relative words such as "tomorrow" or "next Monday". */
+      date: z.string().min(1).max(60),
+      /** As the user said it, e.g. "9am", "14:30". */
+      startTime: z.string().min(1).max(40),
+      endTime: z.string().min(1).max(40).optional(),
+      durationMinutes: z.number().int().min(5).max(1_440).optional(),
+      attendees: z.array(z.string().max(254).regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)).max(50).optional(),
+      location: z.string().min(1).max(500).optional(),
+      details: z.string().min(1).max(2_000).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      tool: z.literal('calendar_find_event'),
+      tabId: TabId,
+      title: z.string().min(1).max(300),
+      date: z.string().min(1).max(60),
+    })
     .strict(),
   // Task control
   z
@@ -252,6 +299,10 @@ export const MUTATING_TOOLS: ReadonlySet<ToolName> = new Set<ToolName>([
   'type_text',
   'press_keys',
   'select_option',
+  'choose_option',
+  'attach_document',
+  'calendar_open_event_editor',
+  'calendar_find_event',
   'scroll',
   'drag',
   'click_at',
@@ -267,6 +318,13 @@ export const VISUAL_TOOLS: ReadonlySet<ToolName> = new Set<ToolName>([
   'double_click_at',
   'drag_at',
   'type_at',
+]);
+
+/** Read-only tools answered from the user's saved account data, never from page content. */
+export const PROFILE_TOOLS: ReadonlySet<ToolName> = new Set<ToolName>([
+  'get_candidate_profile',
+  'search_cv',
+  'list_documents',
 ]);
 
 export function recordFieldsToObject(fields: RecordInput['fields']): Record<string, string> {

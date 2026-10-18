@@ -1,6 +1,6 @@
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify';
 import { z } from 'zod';
-import { MemoryIdSchema } from '@nudge/contracts';
+import { ChatImageInputSchema, MAX_CHAT_IMAGES, MemoryIdSchema } from '@nudge/contracts';
 import type { MemoryStore } from '../memory/memory-store';
 import { referenceContext } from '../memory/reference-context';
 import type { MemoryChatResponder } from '../memory/chat';
@@ -19,9 +19,11 @@ export function registerMemoryChatRoute(
       chatId: MemoryIdSchema,
       text: z.string().trim().min(1).max(4000),
       provider: z.enum(['ollama', 'openai']),
+      images: z.array(ChatImageInputSchema).max(MAX_CHAT_IMAGES).optional(),
     })
     .strict();
-  app.post('/api/memory/chat', { preHandler: options.authenticate }, async (request, reply) => {
+  // Images raise this route's body limit only; they are used for this reply and not stored.
+  app.post('/api/memory/chat', { preHandler: options.authenticate, bodyLimit: 26 * 1024 * 1024 }, async (request, reply) => {
     const input = schema.safeParse(request.body);
     if (!input.success) return reply.code(400).send({ error: 'Invalid chat message.' });
     options.store.getChat(input.data.chatId);
@@ -50,6 +52,7 @@ export function registerMemoryChatRoute(
           question: input.data.text,
           context: referenceContext(options.store, input.data.text),
           history,
+          images: input.data.images ?? [],
         },
         abort.signal,
       );

@@ -63,6 +63,7 @@ import {
 import { ChatModelSelector } from './ChatModelSelector';
 import { type ChatGptPanelProps } from './ChatGptPanel';
 import { Composer } from './Composer';
+import type { PendingImage } from '../chat/image-attachments';
 import { ProviderSettings, type ProviderHealth } from './ProviderSettings';
 import { Status } from './Status';
 import { LiveTranscript } from './LiveTranscript';
@@ -97,6 +98,11 @@ interface SidePanelProps {
   >;
   actions?: ActionResult[];
   onSend(text: string): void;
+  /** Chat image attachments (optional; omitted where images are not supported). */
+  images?: PendingImage[];
+  imageError?: string | undefined;
+  onAddImages?: (files: File[]) => void;
+  onRemoveImage?: (id: string) => void;
   onStop(): void;
   onSaveKey(key: string): void;
   onClearKey(): void;
@@ -149,6 +155,10 @@ export function SidePanel({
   status = 'Ready',
   conversation = [],
   onSend,
+  images,
+  imageError,
+  onAddImages,
+  onRemoveImage,
   onStop,
   onSaveKey,
   onClearKey,
@@ -503,6 +513,13 @@ export function SidePanel({
               <Fragment key={turn.id}>
                 <article className={`message message--${turn.role}`}>
                   <p className={`turn turn--${turn.role}`}>{turn.text}</p>
+                  {turn.images?.length ? (
+                    <div className="turn-images" aria-label="Attached images">
+                      {turn.images.map((image, imageIndex) => (
+                        <img key={`${turn.id}:${imageIndex}`} src={image.thumbnail} alt={image.name} />
+                      ))}
+                    </div>
+                  ) : null}
                   {turn.sources?.length ? (
                     <div className="source-chips">
                       {turn.sources.map((source) => (
@@ -669,6 +686,10 @@ export function SidePanel({
             onMuteVoice={onMuteVoice}
             onInterruptVoice={onInterruptVoice}
             draft={draft}
+            images={images ?? []}
+            imageError={imageError}
+            {...(onAddImages ? { onAddImages } : {})}
+            {...(onRemoveImage ? { onRemoveImage } : {})}
             showRealtimeVoice={showRealtimeVoice}
             dictating={dictating}
             onSend={(text) => {

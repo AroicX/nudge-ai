@@ -17,13 +17,20 @@ export interface RiskAssessment {
   blocked?: string;
 }
 
+/** Step navigation inside multi-step forms is not a final submission. */
+const STEP_NAVIGATION =
+  /^\s*(next|continue|back|previous|save (and|&) (continue|next)|next step|review( application)?|edit)\b/i;
+
 const PATTERNS: Array<[RegExp, ActionCategory, boolean]> = [
   [/\b(pay|purchase|buy( now)?|checkout|check out|place (your )?order|complete (purchase|order)|transfer (money|funds)|send money)\b/i, 'purchase', true],
   [/\b(delete forever|permanently delete|delete permanently|empty trash|erase)\b/i, 'delete_permanent', true],
   [/\b(send|reply( all)?|forward|post|publish|tweet)\b/i, 'send_message', true],
+  [/\b(send invit\w*|invite guests?)\b/i, 'send_message', true],
   [/\b(trash|delete|remove|archive|move to|discard)\b/i, 'move_reversible', false],
   [/\b(unsubscribe|deactivate|close account|cancel subscription)\b/i, 'edit', true],
   [/\b(submit|sign up|register|apply|confirm|book|enroll)\b/i, 'submit_form', true],
+  // Saving an event/record creates it (and may notify guests): same approval policy as submit.
+  [/\b(save|schedule|create event)\b/i, 'submit_form', true],
 ];
 
 const AUTH_CHALLENGE = /\b(captcha|i'?m not a robot|verify you are human|human verification)\b/i;
@@ -73,6 +80,16 @@ export function classifyRisk(target: RiskTarget | undefined, call: ToolCall): Ri
       return { category: 'transfer_code', consequential: false };
     case 'start_timed_repeat':
       return { category: 'read', consequential: false };
+    case 'get_candidate_profile':
+    case 'search_cv':
+    case 'list_documents':
+      return { category: 'read', consequential: false };
+    case 'calendar_open_event_editor':
+    case 'calendar_find_event':
+      // Opens Calendar's own editor/day view; nothing is saved until an approved Save click.
+      return { category: 'navigate', consequential: false };
+    case 'attach_document':
+      return { category: 'fill', consequential: false };
     case 'ask_user':
     case 'request_confirmation':
     case 'finish':
@@ -81,6 +98,7 @@ export function classifyRisk(target: RiskTarget | undefined, call: ToolCall): Ri
     case 'type_text':
     case 'type_at':
     case 'select_option':
+    case 'choose_option':
       if (isSensitiveField(target)) {
         return { category: 'fill', consequential: true, blocked: 'Password and payment fields are user-only.' };
       }
@@ -104,6 +122,9 @@ export function classifyRisk(target: RiskTarget | undefined, call: ToolCall): Ri
       const text = describe(target);
       if (AUTH_CHALLENGE.test(text)) {
         return { category: 'auth_challenge', consequential: true, blocked: 'Human-verification challenges are handed to you.' };
+      }
+      if (STEP_NAVIGATION.test(target?.name ?? target?.text ?? '') && !/\bsubmit\b/i.test(text)) {
+        return { category: 'navigate', consequential: false };
       }
       for (const [pattern, category, consequential] of PATTERNS) {
         if (pattern.test(text)) {

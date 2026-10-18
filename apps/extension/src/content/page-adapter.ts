@@ -7,7 +7,7 @@ import { executeAction, type ExecutionGuard } from './executor';
 import { enterOtp, extractOtpFromPage } from './otp-content';
 import { captureSnapshot } from './snapshot';
 import { TimedRepeatRunner, type TimedEndReason } from './timed-repeat';
-import { executeTool } from './tool-executor';
+import { attachFile, executeTool } from './tool-executor';
 
 export interface PageAdapterOptions {
   document: Document;
@@ -127,6 +127,14 @@ export function createPageAdapter(options: PageAdapterOptions): PageAdapter {
           return executeTool(toolDeps, { tool: 'read_text', tabId: 0, ...(request.elementId ? { elementId: request.elementId } : {}) });
         case 'inspect':
           return executeTool(toolDeps, { tool: 'inspect_element', tabId: 0, elementId: request.elementId });
+        case 'attach_file': {
+          if (request.documentId !== documentId)
+            return result(false, 'Page document is stale; observe again.', { errorCategory: 'stale_element' });
+          const target = registry.resolve(request.elementId);
+          if (!target || !target.isConnected)
+            return result(false, 'Element no longer exists; observe again.', { errorCategory: 'stale_element' });
+          return attachFile({ document, window, documentId }, target, request.file);
+        }
         case 'otp_extract': {
           const extraction = extractOtpFromPage(document, request.service, request.now);
           return result(extraction.status === 'found', `Code lookup: ${extraction.status}.`, { otp: extraction });

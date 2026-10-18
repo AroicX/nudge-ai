@@ -41,7 +41,7 @@ export interface RuntimeOptions {
 export class ChatGptRuntime {
   #refreshing = new Map<string, Promise<void>>();
   #inflight = false;
-  #browserTurn: { key: string; output: unknown[] } | undefined;
+  #browserTurn: { key: string; output: unknown[]; error?: string } | undefined;
   #pending: { transaction: AuthTransaction; close(): void } | undefined;
   readonly fetch: typeof fetch;
   readonly openBrowser: (url: string) => Promise<void>;
@@ -248,21 +248,34 @@ export class ChatGptRuntime {
     const key = input.type === 'plan' ? `${input.accountId}:${input.model}:${input.request.taskId}` : undefined;
     const planner = new OpenAIPlanner({ responses: { create: async (value) => {
       const body = value as { input: unknown[]; tools: unknown[]; instructions: string };
-      const previous = key && this.#browserTurn?.key === key ? this.#browserTurn.output : [];
+      const turn = key && this.#browserTurn?.key === key ? this.#browserTurn : undefined;
+      const previous = turn?.output ?? [];
+      // Answer every earlier function call with its own call_id. The full new state is in the
+      // next user message, so the output carries only the structured execution result.
       const results = previous.filter((item): item is { type: string; call_id: string } =>
         Boolean(item && typeof item === 'object' && (item as { type?: string }).type === 'function_call'))
         .map((call) => ({ type: 'function_call_output', call_id: call.call_id,
-          output: JSON.stringify(input.type === 'plan' ? { result: input.request.lastResult ?? null, memory: input.request.memory, observation: input.request.observation, notes: input.request.notes } : {}) }));
+          output: JSON.stringify(
+            turn?.error
+              ? { error: `Your previous step was not executed: ${turn.error}. Return one valid emit_step.` }
+              : input.type === 'plan' ? { result: input.request.lastResult ?? null } : {},
+          ) }));
       const output = await this.respond({
         accountId: input.accountId, model: input.model, instructions: body.instructions, messages: [], onDelta: () => undefined,
         requestBody: { ...body, input: [...previous, ...results, ...body.input],
           tools: [{ type: 'namespace', name: 'nudge', description: 'Nudge browser actions executed locally by the extension after permission checks.', tools: body.tools }],
-          tool_choice: 'required', include: ['reasoning.encrypted_content'], store: false, stream: true },
+          tool_choice: 'required', parallel_tool_calls: false, include: ['reasoning.encrypted_content'], store: false, stream: true },
       }, signal);
       if (key) this.#browserTurn = { key, output };
       return { output };
     } } }, input.model);
-    return input.type === 'plan' ? planner.plan(input.request, signal) : planner.scope(input.request, signal);
+    try {
+      return input.type === 'plan' ? await planner.plan(input.request, signal) : await planner.scope(input.request, signal);
+    } catch (error) {
+      if (key && this.#browserTurn?.key === key)
+        this.#browserTurn = { ...this.#browserTurn, error: error instanceof Error ? error.message.slice(0, 500) : 'invalid step' };
+      throw error;
+    }
   }
 
   async respond(

@@ -10,6 +10,8 @@ import {
   type AgentStepRequest,
   type AgentStepResponse,
   type ProviderSelection,
+  CandidateProfileSchema,
+  type CandidateProfile,
 } from '@nudge/contracts';
 
 export class ServerClient {
@@ -83,6 +85,49 @@ export class ServerClient {
       signal,
     );
     return ScopeResponseSchema.parse(await response.json());
+  }
+
+  /** Saved reference context for providers that do not plan through this server (ChatGPT plan). */
+  async agentContext(query: string, signal?: AbortSignal): Promise<string> {
+    const response = await this.request(
+      '/api/agent/context',
+      { method: 'POST', body: JSON.stringify({ query: query.slice(0, 8_000) }) },
+      signal,
+    );
+    const body = (await response.json()) as { referenceContext?: unknown };
+    return typeof body.referenceContext === 'string' ? body.referenceContext.slice(0, 8_000) : '';
+  }
+
+  async candidateProfile(signal?: AbortSignal): Promise<CandidateProfile> {
+    const response = await this.request('/api/profile/candidate', { method: 'GET' }, signal);
+    return CandidateProfileSchema.parse(((await response.json()) as { profile: unknown }).profile);
+  }
+
+  async searchCv(query: string, signal?: AbortSignal) {
+    const response = await this.request(
+      '/api/profile/search',
+      { method: 'POST', body: JSON.stringify({ query: query.slice(0, 300) }) },
+      signal,
+    );
+    return ((await response.json()) as { results: Array<{ documentId: string; filename: string; excerpt: string }> })
+      .results;
+  }
+
+  async documentFile(documentId: string, signal?: AbortSignal) {
+    const response = await this.request(
+      `/api/memory/documents/${encodeURIComponent(documentId)}/file`,
+      { method: 'GET' },
+      signal,
+    );
+    return (await response.json()) as { filename: string; mime: string; base64: string };
+  }
+
+  async setDefaultDocument(documentId: string, isDefault: boolean): Promise<CandidateProfile> {
+    const response = await this.request(`/api/memory/documents/${encodeURIComponent(documentId)}/default`, {
+      method: 'PUT',
+      body: JSON.stringify({ isDefault }),
+    });
+    return CandidateProfileSchema.parse(((await response.json()) as { profile: unknown }).profile);
   }
 
   async setProviderKey(apiKey: string): Promise<void> {

@@ -10,6 +10,7 @@ import type {
   TabReference,
 } from '@nudge/contracts';
 import type { Checkpoint } from '@nudge/core';
+import type { CandidateProfile } from '@nudge/contracts';
 
 export interface TabsPort {
   list(): Promise<TabReference[]>;
@@ -55,4 +56,11 @@ export interface CdpPort {
   captureScreenshot(): Promise<string>;
   attachedTabId(): number | undefined;
   onLost(listener: (reason: string) => void): () => void;
+}
+
+/** The signed-in user's saved profile and documents (local paired server). Read-only. */
+export interface ProfilePort {
+  candidateProfile(signal?: AbortSignal): Promise<CandidateProfile>;
+  searchCv(query: string, signal?: AbortSignal): Promise<Array<{ documentId: string; filename: string; excerpt: string }>>;
+  documentFile(documentId: string, signal?: AbortSignal): Promise<{ filename: string; mime: string; base64: string }>;
 }

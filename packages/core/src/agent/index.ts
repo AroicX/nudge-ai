@@ -14,3 +14,5 @@ export * from './checkpoint';
 export * from './records';
 export * from './export';
 export * from './timed';
+export * from './calendar';
+export * from './progress';

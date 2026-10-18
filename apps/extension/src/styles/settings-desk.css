@@ -582,3 +582,7 @@
   .settings-main h2 { font-size: 24px; }
   .settings-row { align-items: flex-start; flex-direction: column; }
 }
+
+.doc-card__default { font-size: 12px; border: 1px solid #dde1eb; border-radius: 999px; padding: 3px 10px; background: white; cursor: pointer; justify-self: start; }
+.doc-card__default[aria-pressed='true'] { background: #eef0ff; border-color: #5b6cf0; color: #3d4bcc; font-weight: 600; }
+.doc-card__default:focus-visible { outline: 2px solid #5b6cf0; outline-offset: 2px; }

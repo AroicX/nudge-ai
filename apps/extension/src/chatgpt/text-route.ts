@@ -1,4 +1,4 @@
-import type { ProviderSelection } from '@nudge/contracts';
+import type { ChatImageInput, ProviderSelection } from '@nudge/contracts';
 import { isConversationRequest } from '../panel/message-routing';
 
 export const CHATGPT_VOICE_NOTE =
@@ -57,4 +57,28 @@ export function planMessages(input: {
     .slice(-6)
     .map((turn) => ({ role: turn.role, content: turn.text.slice(0, 1500) }));
   return { ok: true, messages: [...prior, { role: 'user', content: input.question.slice(0, 4000) }] };
+}
+
+export type PlanMessageContent =
+  | string
+  | Array<{ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string }>;
+
+/** Attach images to the final user message as Responses content parts. */
+export function withImages(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  images: ChatImageInput[],
+): Array<{ role: 'user' | 'assistant'; content: PlanMessageContent }> {
+  if (!images.length) return messages;
+  const last = messages.at(-1);
+  if (!last || last.role !== 'user') return messages;
+  return [
+    ...messages.slice(0, -1),
+    {
+      role: 'user',
+      content: [
+        { type: 'input_text', text: last.content },
+        ...images.map((image) => ({ type: 'input_image' as const, image_url: image.dataUrl })),
+      ],
+    },
+  ];
 }

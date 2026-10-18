@@ -11,7 +11,7 @@ import type {
   TabReference,
   ToolCall,
 } from '@nudge/contracts';
-import type { Checkpoint } from '@nudge/core';
+import { stableHash, type Checkpoint } from '@nudge/core';
 
 import type { CheckpointPort, ContentPort, PlannerPort, ScreenshotPort, TabsPort } from './ports';
 
@@ -22,6 +22,9 @@ export interface FakePage {
   elements: PageElement[];
   text: string[];
   inaccessible?: PageSnapshot['inaccessible'];
+  dialog?: PageSnapshot['dialog'];
+  validation?: string[];
+  onAttach?: (request: Extract<ContentRequest, { type: 'attach_file' }>, page: FakePage) => Partial<ContentResult> | void;
   onExecute?: (call: Extract<ContentRequest, { type: 'execute' }>['call'], page: FakePage) => Partial<ContentResult> | void | Promise<Partial<ContentResult> | void>;
 }
 
@@ -112,6 +115,9 @@ export class FakeBrowser implements TabsPort, ContentPort {
       truncated: false,
       inaccessible: page.inaccessible ?? [],
       mutationCounter: 0,
+      ...(page.dialog ? { dialog: page.dialog } : {}),
+      ...(page.validation?.length ? { validation: page.validation } : {}),
+      stateHash: stableHash(JSON.stringify([page.url, page.elements, page.text, page.dialog ?? null, page.validation ?? []])),
     };
   }
 
@@ -126,6 +132,10 @@ export class FakeBrowser implements TabsPort, ContentPort {
       if (request.documentId !== page.documentId) return { ...base, ok: false, detail: 'Page document is stale; observe again.' };
       const extra = (await page.onExecute?.(request.call, page)) ?? {};
       return { ...base, changed: true, ...extra };
+    }
+    if (request.type === 'attach_file') {
+      if (request.documentId !== page.documentId) return { ...base, ok: false, detail: 'Page document is stale; observe again.' };
+      return { ...base, changed: true, detail: `Attached “${request.file.name}”.`, fieldValue: request.file.name, ...(page.onAttach?.(request, page) ?? {}) };
     }
     return base;
   }
