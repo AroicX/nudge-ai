@@ -112,7 +112,7 @@ export function ChatSidebar({
         </p>
       ) : null}
       <button type="button" className="chat-sidebar__memory" onClick={onMemory}>
-        <Brain size={17} /> Memory & profile
+        <Brain size={17} /> Account
       </button>
       <p className="chat-sidebar__note">Saved on this computer</p>
     </aside>

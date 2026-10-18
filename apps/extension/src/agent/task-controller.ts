@@ -88,6 +88,8 @@ export interface ControllerDeps {
   clock: () => number;
   emit(message: ControllerMessage): void;
   provider: () => 'openai' | 'ollama';
+  subscriptionText?: () => boolean;
+  subscriptionTools?: () => boolean;
   capabilities: () => { vision: boolean };
   id?: () => string;
   limits?: { maxCalls: number; maxMs: number };
@@ -120,6 +122,7 @@ interface Task {
   sources: Map<string, TabReference>;
   fallbackOffer?: { reason: string } | undefined;
   useOpenAI: boolean;
+  needsScope: boolean;
   provider?: 'openai' | 'ollama' | undefined;
   report?: FinalReport | undefined;
   cancellationRequested?: boolean;
@@ -459,6 +462,12 @@ export class TaskController {
       return;
     }
     task.useOpenAI = true;
+    if (task.needsScope) {
+      task.needsScope = false;
+      task.status = 'planning';
+      void this.#scopeTask(task);
+      return;
+    }
     this.#set('answered');
     this.#kick();
   }
@@ -538,6 +547,7 @@ export class TaskController {
       snapshotFresh: false,
       wantScreenshot: false,
       useOpenAI: false,
+      needsScope: false,
       timeline: [],
       startedAt: this.deps.clock(),
       rejectedFinishes: 0,
@@ -642,6 +652,20 @@ export class TaskController {
       await this.#finishTask('failed', 'There is no ordinary web page open for Nudge to work in.');
       return;
     }
+    if (this.#needsExplicitApi(task)) {
+      task.needsScope = true;
+      this.#offerPlanApproval(task);
+      return;
+    }
+    await this.#scopeTask(task);
+  }
+
+  async #scopeTask(task: Task): Promise<void> {
+    const origin = task.tabs.find((tab) => tab.tabId === task.boundTabId);
+    if (!origin) {
+      await this.#finishTask('failed', 'There is no ordinary web page open for Nudge to work in.');
+      return;
+    }
     task.memory = setTabRole(task.memory, origin, 'origin');
     const abort = new AbortController();
     this.#planAbort = abort;
@@ -649,15 +673,15 @@ export class TaskController {
       const scope = await this.deps.planner.scope(
         {
           requestId: crypto.randomUUID(),
-          instruction,
+          instruction: task.instruction,
           originTabId: origin.tabId,
-          tabs: tabs.map(({ tabId, title, url }) => ({ tabId, title, url })),
+          tabs: task.tabs.map(({ tabId, title, url }) => ({ tabId, title, url })),
         },
         abort.signal,
         this.#providerOverride(task),
       );
       if (abort.signal.aborted || this.#task !== task || isTerminal(task.status)) return;
-      task.authorization = sanitizeAuthorization(scope.proposal, instruction, id);
+      task.authorization = sanitizeAuthorization(scope.proposal, task.instruction, task.id);
       task.memory = { ...task.memory, goal: scope.goal, recordFields: scope.recordFields ?? [] };
       task.records = new RecordStore(scope.recordFields ?? []);
       this.#timeline(task, 'scope', 'Understood the request', 'completed');
@@ -888,6 +912,10 @@ export class TaskController {
     if (!this.#scheduler.isCurrent(ticket) || task.status !== 'running') return;
 
     const request = this.#plannerRequest(task, observation);
+    if (this.#needsExplicitApi(task)) {
+      this.#offerPlanApproval(task);
+      return;
+    }
     task.notes = [];
     task.lastResult = undefined;
     let response: PlannerResponse;
@@ -1940,6 +1968,21 @@ export class TaskController {
     this.#kick();
   }
 
+  #needsExplicitApi(task: Task): boolean {
+    return Boolean(this.deps.subscriptionText?.()) && !this.deps.subscriptionTools?.() && !task.useOpenAI;
+  }
+
+  #offerPlanApproval(task: Task): void {
+    task.fallbackOffer = {
+      reason:
+        'ChatGPT plan browser tools are unavailable in this Nudge installation. Use your OpenAI API key for this task only?',
+    };
+    task.pendingQuestion =
+      'ChatGPT plan browser tools are unavailable in this Nudge installation. Use your OpenAI API key for this task only? Nudge will not switch billing unless you choose it.';
+    task.status = task.status === 'planning' ? 'waiting_for_user' : transition(task.status, 'ask');
+    this.#broadcast();
+  }
+
   #offerFallback(task: Task, error: unknown): boolean {
     if ((this.#providerOverride(task) ?? this.deps.provider()) !== 'ollama') return false;
     const reason = error instanceof Error ? error.message : 'Ollama could not complete this step.';
@@ -1952,6 +1995,7 @@ export class TaskController {
   }
 
   #providerOverride(task: Task): 'openai' | 'ollama' | undefined {
+    if (this.deps.subscriptionText?.() && !task.useOpenAI) return undefined;
     return task.useOpenAI ? 'openai' : task.provider;
   }
 

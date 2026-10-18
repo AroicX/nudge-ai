@@ -16,6 +16,8 @@ Tasks run in the extension's background service worker, so closing or reloading 
 
 The backend listens only on `127.0.0.1:4317`. The environment OpenAI key is the default. A user can replace it from **Provider settings**; the replacement stays only in backend memory and is cleared when that process restarts.
 
+Eligible full-screen text can instead use a connected ChatGPT plan. That control is not shown in the side panel. Setup, the local companion, and the billing split are in [docs/chatgpt-plan.md](docs/chatgpt-plan.md). Voice and browser actions are not moved onto the plan.
+
 ## Full-page chats and local memory
 
 Use **Open full-page chat** in the side-panel header for a separate Nudge tab. The full-page composer has a model menu for the configured OpenAI provider and installed Ollama models. Its attached website remains explicit even while the Nudge tab is active. New chats, saved chats, and Memory/Profile controls are available in the full-page view. Browser actions still have one active task; multiple chats do not imply simultaneous browser control. The light/dark toggle is shared across the compact panel and full-page view. Chat follows incoming text and progress; scrolling upward pauses following until you send a message or choose Jump to latest.

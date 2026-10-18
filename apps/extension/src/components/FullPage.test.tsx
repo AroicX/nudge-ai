@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SidePanel } from './SidePanel';
+import type { MemoryWorkspace } from '../panel/use-memory-workspace';
 
 afterEach(cleanup);
 const props = () => ({
@@ -16,6 +17,55 @@ function openModels() {
 }
 
 describe('full-page conversation', () => {
+  it('keeps ChatGPT connection controls in Memory and profile, outside the composer', () => {
+    const chatGpt = {
+      accounts: [],
+      busy: false,
+      limitReached: false,
+      welcome: false,
+      connected: false,
+      onConnect: vi.fn(),
+      onReconnect: vi.fn(),
+      onAddAccount: vi.fn(),
+      onEnablePlan: vi.fn(),
+      onDisconnect: vi.fn(),
+      onSelect: vi.fn(),
+      onDismissWelcome: vi.fn(),
+      onManageUsage: vi.fn(),
+    };
+    const side = render(<SidePanel {...props()} chatGpt={chatGpt} />);
+    expect(screen.queryByRole('button', { name: 'Continue with ChatGPT' })).toBeNull();
+    side.unmount();
+    const memoryWorkspace = { chats: [], facts: [], documents: [], refreshMemory: vi.fn().mockResolvedValue(undefined) } as unknown as MemoryWorkspace;
+    render(<SidePanel {...props()} fullPage chatGpt={chatGpt} memoryWorkspace={memoryWorkspace} />);
+    expect(screen.queryByRole('button', { name: 'Continue with ChatGPT' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }));
+    expect(screen.queryByRole('button', { name: 'Continue with ChatGPT' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'ChatGPT' }));
+    expect(screen.getByRole('button', { name: 'Continue with ChatGPT' })).toBeTruthy();
+    expect(screen.getByText(/does not import ChatGPT history/)).toBeTruthy();
+    expect(screen.getByText(/separately billed OpenAI API requests/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close account' }));
+    expect(screen.queryByRole('button', { name: 'Continue with ChatGPT' })).toBeNull();
+  });
+  it('splits full-screen account and settings, and keeps the side panel on the provider dialog', () => {
+    const memoryWorkspace = {
+      chats: [],
+      facts: [],
+      documents: [],
+      refreshMemory: vi.fn().mockResolvedValue(undefined),
+    } as unknown as MemoryWorkspace;
+    const full = render(<SidePanel {...props()} fullPage memoryWorkspace={memoryWorkspace} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
+    expect(screen.queryByRole('dialog', { name: 'Provider settings' })).toBeNull();
+    expect(screen.getByRole('heading', { name: 'General' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Models' }));
+    expect(screen.getByLabelText('OpenAI API key')).toBeTruthy();
+    full.unmount();
+    render(<SidePanel {...props()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
+    expect(screen.getByRole('dialog', { name: 'Provider settings' })).toBeTruthy();
+  });
   it('offers expansion only in the side panel and keeps its composer selector-free', () => {
     const onExpand = vi.fn();
     render(<SidePanel {...props()} onExpand={onExpand} />);
@@ -31,6 +81,67 @@ describe('full-page conversation', () => {
       screen.getByRole('form').contains(screen.getByRole('button', { name: 'Choose model' })),
     ).toBe(true);
     expect(screen.queryByRole('button', { name: 'Open full-page chat' })).toBeNull();
+    expect(screen.getByRole('button', { name: "Summarize the page I'm on" })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse' }));
+    expect(screen.getByRole('button', { name: 'Open the pricing page' })).toBeTruthy();
+  });
+  it('asks with question cards, rates replies, and shows browser steps as tools', () => {
+    const onSelectTab = vi.fn();
+    render(
+      <SidePanel
+        {...props()}
+        fullPage
+        onSelectTab={onSelectTab}
+        timeline={[{ id: 'step-1', label: 'Opened example.com', status: 'completed', detail: 'Title read' }]}
+        conversation={[
+          {
+            id: 'reply',
+            role: 'assistant',
+            text: 'The page title is Example.',
+            createdAt: '2026-10-18T00:00:00.000Z',
+            sources: [
+              {
+                tabId: 1,
+                windowId: 1,
+                active: true,
+                url: 'https://example.com/',
+                title: 'Example Domain',
+                domain: 'example.com',
+                discarded: false,
+                lastSeenAt: '2026-10-18T00:00:00.000Z',
+                favIconUrl: 'https://example.com/favicon.ico',
+              },
+            ],
+          },
+        ]}
+        controller={{
+          status: 'waiting_for_user',
+          plan: [],
+          memorySummary: { recordCount: 0, issues: [] },
+          capability: 'dom_only',
+          timeline: [],
+          pendingQuestion: 'Which tab should I use?',
+          tabChoices: [
+            {
+              number: 2,
+              tabId: 9,
+              windowId: 1,
+              active: false,
+              url: 'https://example.com/',
+              title: 'Example Domain',
+              domain: 'example.com',
+              discarded: false,
+              lastSeenAt: '2026-10-18T00:00:00.000Z',
+            },
+          ],
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '2. example.com — Example Domain' }));
+    expect(onSelectTab).toHaveBeenCalledWith(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Helpful' }));
+    expect(screen.getByText('Thanks. This stays on this screen.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Example Domain' })).toBeTruthy();
   });
   it('offers only discovered local models and the configured OpenAI option', async () => {
     const onProviderSelection = vi.fn();

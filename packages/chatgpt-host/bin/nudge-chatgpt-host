@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+ROOT=$(CDPATH= cd -- "$HERE/../../.." && pwd)
+exec "$ROOT/packages/chatgpt-host/node_modules/.bin/tsx" "$ROOT/packages/chatgpt-host/src/main.ts"

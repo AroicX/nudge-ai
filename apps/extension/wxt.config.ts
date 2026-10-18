@@ -39,6 +39,7 @@ const permissions = [
   'tabs',
   'debugger',
   'system.display',
+  'nativeMessaging',
 ];
 
 // E2E builds (WXT_PUBLIC_NUDGE_E2E=1) expose test hooks in the side panel and go to a separate folder.

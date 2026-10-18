@@ -31,6 +31,7 @@ interface NudgeState {
   setBusy(busy: boolean): void;
   setStatus(status: string): void;
   addTurn(turn: ConversationTurn | PersistedTurn): void;
+  patchTurn(id: string, text: string): void;
   setTurnSources(id: string, sources: SourceReference[]): void;
   hydrateHistory(): Promise<void>;
   subscribeHistory(): () => void;
@@ -112,6 +113,16 @@ export const useNudgeStore = create<NudgeState>((set) => ({
       ];
       void historyStore.saveHistory({ version: 1, turns: conversation, timeline: state.timeline });
       return { conversation, ...(turn.role === 'user' ? { pendingTaskTurnId: turn.id } : {}) };
+    }),
+  patchTurn: (id, text) =>
+    set((state) => {
+      const next = text.slice(0, 4000);
+      if (!next || !state.conversation.some((turn) => turn.id === id)) return {};
+      const conversation = state.conversation.map((turn) =>
+        turn.id === id ? { ...turn, text: next } : turn,
+      );
+      void historyStore.saveHistory({ version: 1, turns: conversation, timeline: state.timeline });
+      return { conversation };
     }),
   setTurnSources: (id, sources) =>
     set((state) => {

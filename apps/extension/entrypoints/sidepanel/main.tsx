@@ -44,6 +44,8 @@ import {
 } from '../../src/panel/shared-provider';
 import { VoiceProviderGate } from '../../src/providers/voice-provider-gate';
 import { reconcileProviderSelection } from '../../src/providers/provider-selection';
+import { ChatGptCompanion, CHATGPT_HOST, type ChatGptAccount } from '../../src/chatgpt/companion';
+import { planMessages, routeEligibleText } from '../../src/chatgpt/text-route';
 import '../../src/styles/app.css';
 
 const client = new ServerClient(
@@ -78,7 +80,20 @@ function App() {
   const state = useNudgeStore();
   const memory = useMemoryWorkspace(memoryClient);
   const [chatPending, setChatPending] = useState(false);
+  const [chatGptAccounts, setChatGptAccounts] = useState<ChatGptAccount[]>([]);
+  const [chatGptActive, setChatGptActive] = useState<string>();
+  const [chatGptError, setChatGptError] = useState<string>();
+  const [chatGptBusy, setChatGptBusy] = useState(false);
+  const [chatGptWelcome, setChatGptWelcome] = useState(false);
+  const [chatGptLimit, setChatGptLimit] = useState(false);
+  const [planModels, setPlanModels] = useState<Array<{ slug: string; displayName: string }>>([]);
   const chatAbort = useRef<AbortController | undefined>(undefined);
+  const chatGpt = useRef(
+    new ChatGptCompanion(
+      () => browser.runtime.connectNative(CHATGPT_HOST) as never,
+      browser.runtime.id,
+    ),
+  );
   useEffect(() => {
     const changed = (changes: Record<string, { newValue?: unknown }>, area: string) => {
       if (area === 'local' && 'nudgeCancelChatReply' in changes) chatAbort.current?.abort();
@@ -255,14 +270,21 @@ function App() {
             return;
           }
           const chatId = memory.activeId!;
-          const replyProvider = appliedProvider.current?.provider;
-          if (!voiceProviderGate.current.ready || !replyProvider) {
+          const selection = appliedProvider.current;
+          if (!voiceProviderGate.current.ready || !selection) {
             state.setStatus('Provider settings are updating. Please try again in a moment.');
             return;
           }
+          const route = routeEligibleText({
+            text,
+            taskStatus: useNudgeStore.getState().controller?.status,
+            selection,
+          });
+          if (route.kind !== 'plan' && route.kind !== 'conversation') return;
           const abort = new AbortController();
           chatAbort.current = abort;
           setChatPending(true);
+          let replyId = '';
           try {
             await browser.storage.local.set({ nudgeChatReplyPending: Date.now() + 180_000 });
             useNudgeStore.getState().addTurn({
@@ -274,26 +296,78 @@ function App() {
             useNudgeStore.setState({ pendingTaskTurnId: undefined });
             state.setStatus('Thinking…');
             await memory.flush();
-            const reply = await memoryClient.chat(chatId, text, replyProvider, abort.signal);
-            if (!abort.signal.aborted) {
-              const references = reply.sources?.map((source) => source.title).filter(Boolean);
-              assistant(
-                reply.text +
-                  (references?.length
-                    ? `\n\nReferences: ${Array.from(new Set(references)).join('; ')}`
-                    : ''),
-              );
-              await memory.flush();
-              state.setStatus('Ready');
+            if (route.kind === 'plan') {
+              const context = await memoryClient.context(text, abort.signal);
+              const bindingKey = `nudgeChatGptAccount:${chatId}`;
+              const stored = await browser.storage.local.get(bindingKey);
+              const bound =
+                typeof stored[bindingKey] === 'string' ? stored[bindingKey] : undefined;
+              const history = useNudgeStore
+                .getState()
+                .conversation.slice(0, -1)
+                .map((turn) => ({ role: turn.role, text: turn.text }));
+              const planned = planMessages({
+                history,
+                question: text,
+                ...(typeof bound === 'string' ? { boundAccountId: bound } : {}),
+                activeAccountId: route.accountId,
+              });
+              if (!planned.ok) {
+                state.setStatus(planned.message);
+                return;
+              }
+              replyId = crypto.randomUUID();
+              let assembled = '';
+              await chatGpt.current.respond({
+                accountId: route.accountId,
+                model: route.model,
+                instructions: context.instructions,
+                messages: planned.messages,
+                signal: abort.signal,
+                onDelta: (delta) => {
+                  assembled = (assembled + delta).slice(0, 4000);
+                  const store = useNudgeStore.getState();
+                  if (!store.conversation.some((turn) => turn.id === replyId)) {
+                    store.addTurn({
+                      id: replyId,
+                      role: 'assistant',
+                      text: assembled,
+                      createdAt: new Date().toISOString(),
+                    });
+                  } else store.patchTurn(replyId, assembled);
+                },
+              });
+              if (!abort.signal.aborted) {
+                if (!assembled.trim()) throw new Error('ChatGPT returned an empty reply.');
+                await browser.storage.local.set({ [bindingKey]: route.accountId });
+                await memory.flush();
+                state.setStatus('Using ChatGPT plan.');
+              }
+            } else {
+              const reply = await memoryClient.chat(chatId, text, route.provider, abort.signal);
+              if (!abort.signal.aborted) {
+                const references = reply.sources?.map((source) => source.title).filter(Boolean);
+                assistant(
+                  reply.text +
+                    (references?.length
+                      ? `\n\nReferences: ${Array.from(new Set(references)).join('; ')}`
+                      : ''),
+                );
+                await memory.flush();
+                state.setStatus('Ready');
+              }
             }
           } catch (error) {
-            state.setStatus(
-              abort.signal.aborted
-                ? 'Stopped'
-                : error instanceof Error
-                  ? error.message
-                  : 'Could not answer right now.',
-            );
+            const message = abort.signal.aborted
+              ? 'Stopped'
+              : error instanceof Error
+                ? error.message
+                : 'Could not answer right now.';
+            if (replyId && !abort.signal.aborted)
+              useNudgeStore.getState().patchTurn(replyId, message);
+            if (message.includes('Usage limit reached')) setChatGptLimit(true);
+            if (!abort.signal.aborted) setChatGptError(message);
+            state.setStatus(message);
           } finally {
             chatAbort.current = undefined;
             setChatPending(false);
@@ -412,7 +486,9 @@ function App() {
   const providerVision = (selection: ProviderSelection, health = providerHealth) =>
     selection.provider === 'openai'
       ? true
-      : Boolean(
+      : selection.provider === 'chatgpt'
+        ? false
+        : Boolean(
           (
             health?.ollama as
               { modelCapabilities?: Record<string, { vision: boolean }> } | undefined
@@ -458,7 +534,9 @@ function App() {
     state.setStatus(
       shared.selection.provider === 'ollama'
         ? `Using local Ollama: ${shared.selection.model}`
-        : 'Using OpenAI.',
+        : shared.selection.provider === 'chatgpt'
+          ? 'Using ChatGPT plan.'
+          : 'Using OpenAI.',
     );
     return true;
   };
@@ -483,6 +561,51 @@ function App() {
       );
     }
   };
+
+  const applyChatGpt = async (status: { accounts?: ChatGptAccount[]; activeAccountId?: string }) => {
+    const accounts = status.accounts ?? [];
+    setChatGptAccounts(accounts);
+    setChatGptActive(status.activeAccountId);
+    const active = accounts.find((account) => account.id === status.activeAccountId);
+    if (!active?.signedIn || !active.planUsage) {
+      setPlanModels([]);
+      return;
+    }
+    const models = await chatGpt.current.models(active.id);
+    setPlanModels(models);
+    const seen = await browser.storage.local.get('nudgeChatGptWelcomeSeen');
+    if (!seen.nudgeChatGptWelcomeSeen) setChatGptWelcome(true);
+  };
+  const refreshChatGpt = async () => {
+    await applyChatGpt(await chatGpt.current.status());
+  };
+  const runChatGpt = async (
+    work: () => Promise<{ accounts?: ChatGptAccount[]; activeAccountId?: string }>,
+  ) => {
+    setChatGptBusy(true);
+    setChatGptError(undefined);
+    setChatGptLimit(false);
+    try {
+      await applyChatGpt(await work());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'ChatGPT sign-in failed.';
+      setChatGptError(message);
+      state.setStatus(message);
+    } finally {
+      setChatGptBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!pageMode.fullPage) return;
+    void refreshChatGpt().catch((error: unknown) => {
+      setChatGptError(
+        error instanceof Error
+          ? error.message
+          : 'Install the Nudge ChatGPT companion, then reload the extension.',
+      );
+    });
+  }, []);
 
   useEffect(() => {
     controller.connect(onControllerMessage);
@@ -638,6 +761,73 @@ function App() {
       providerError={providerError}
       providerSelection={providerSelection}
       providerHealth={providerHealth}
+      planModels={pageMode.fullPage ? planModels : undefined}
+      chatGpt={
+        pageMode.fullPage
+          ? {
+              accounts: chatGptAccounts,
+              activeAccountId: chatGptActive,
+              busy: chatGptBusy,
+              error: chatGptError,
+              limitReached: chatGptLimit,
+              welcome: chatGptWelcome,
+              connected: Boolean(
+                chatGptAccounts.find((account) => account.id === chatGptActive)?.signedIn,
+              ),
+              onConnect: () =>
+                void runChatGpt(async () => {
+                  const result = await chatGpt.current.connectAccount();
+                  if (result.account?.planUsage) {
+                    const models = await chatGpt.current.models(result.account.id);
+                    setPlanModels(models);
+                    const model = models[0];
+                    if (model)
+                      await selectProvider({
+                        provider: 'chatgpt',
+                        accountId: result.account.id,
+                        model: model.slug,
+                      });
+                  }
+                  return result;
+                }),
+              onReconnect: (accountId) =>
+                void runChatGpt(() => chatGpt.current.connectAccount({ accountId })),
+              onAddAccount: () =>
+                void runChatGpt(() => chatGpt.current.connectAccount({ newAccount: true })),
+              onEnablePlan: (accountId) =>
+                void runChatGpt(() => chatGpt.current.connectAccount({ accountId, enablePlan: true })),
+              onDisconnect: (accountId) =>
+                void runChatGpt(async () => {
+                  const result = await chatGpt.current.disconnectAccount(accountId);
+                  if (!result.revocationConfirmed)
+                    setChatGptError(
+                      'Local ChatGPT access was cleared. Remote revocation was not confirmed. You can also disconnect Nudge in ChatGPT settings.',
+                    );
+                  return result;
+                }),
+              onSelect: (accountId) =>
+                void runChatGpt(async () => {
+                  const result = await chatGpt.current.selectAccount(accountId);
+                  const account = result.accounts?.find((item) => item.id === accountId);
+                  if (account?.signedIn && account.planUsage) {
+                    const models = await chatGpt.current.models(accountId);
+                    setPlanModels(models);
+                    const model = models[0];
+                    if (model)
+                      await selectProvider({ provider: 'chatgpt', accountId, model: model.slug });
+                  }
+                  return result;
+                }),
+              onDismissWelcome: () => {
+                setChatGptWelcome(false);
+                void browser.storage.local.set({ nudgeChatGptWelcomeSeen: true });
+              },
+              onManageUsage: () => {
+                void browser.tabs.create({ url: 'https://chatgpt.com/settings/usage' });
+              },
+            }
+          : undefined
+      }
       onProviderSelection={(selection) => void selectProvider(selection)}
       onRefreshProviders={() =>
         void client

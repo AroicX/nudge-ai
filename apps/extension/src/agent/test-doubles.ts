@@ -150,7 +150,11 @@ export class FakePlanner implements PlannerPort {
     this.#steps.push(...steps);
   }
 
-  async scope(request: ScopeRequest): Promise<ScopeResponse> {
+  async scope(
+    request: ScopeRequest,
+    _signal?: AbortSignal,
+    _provider?: 'openai' | 'ollama',
+  ): Promise<ScopeResponse> {
     this.scopes.push(request);
     const { recordFields, ...proposal } = this.scopeProposal;
     return {

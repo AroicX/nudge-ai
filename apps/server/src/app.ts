@@ -18,7 +18,7 @@ import { registerLocalVoiceRoutes } from './routes/local-voice';
 import { registerAgentPlanRoutes } from './routes/agent-plan';
 import { OpenAIPlanner } from './planner/openai-planner';
 import { OllamaPlanner } from './planner/ollama-planner';
-import type { PlannerFactory } from './planner/planner-provider';
+import { resolveBrowserProvider, type PlannerFactory } from './planner/planner-provider';
 import { ScriptedPlanner, type ScenarioFile } from './planner/scripted-planner';
 import {
   OpenAIAudioTranscriber,
@@ -115,17 +115,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       const apiKey = sessionKey ?? config.openAIApiKey;
       if (options.plannerFactory) return options.plannerFactory(providerOverride, { apiKey });
       if (scripted) return scripted;
-      if (providerOverride === 'ollama' && !localSelection) {
-        throw new Error(
-          'Ollama settings are not ready. Reopen Nudge or choose the local model again.',
-        );
-      }
-      const active =
-        providerOverride === 'openai'
-          ? { provider: 'openai' as const }
-          : providerOverride === 'ollama'
-            ? localSelection!
-            : selection;
+      const active = resolveBrowserProvider(selection, providerOverride, localSelection);
       if (active.provider === 'openai')
         return new OpenAIPlanner(new OpenAI({ apiKey }), config.agentModel);
       const key = JSON.stringify([active.baseUrl, active.model]);

@@ -1,0 +1,21 @@
+{
+  "name": "@nudge/chatgpt-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "install-host": "tsx src/install.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "jose": "6.1.3",
+    "zod": "4.6.7",
+    "@nudge/core": "workspace:*",
+    "@nudge/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "4.23.15"
+  }
+}

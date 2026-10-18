@@ -1,3 +1,5 @@
+import { ChatGptCompanion, CHATGPT_HOST } from '../src/chatgpt/companion';
+import { createPlanPlannerPort } from '../src/chatgpt/planner-port';
 import {
   ContentEventSchema,
   ExtensionMessageSchema,
@@ -22,20 +24,28 @@ import { executeNativeBrowserCommand, type BrowserApi } from '../src/tabs/native
 
 export default defineBackground(() => {
   void browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  void browser.sidePanel.setOptions({ path: 'sidepanel.html', enabled: true });
 
   const server = new ServerClient(
     import.meta.env.WXT_PUBLIC_NUDGE_SERVER_URL ?? 'http://127.0.0.1:4317',
     import.meta.env.WXT_PUBLIC_NUDGE_PAIRING_SECRET ?? '',
   );
   let provider: 'openai' | 'ollama' = 'openai';
+  let subscriptionText = false;
   let vision = true;
   let providerSelection: ProviderSelection = { provider: 'openai' };
   const loadProvider = async () => {
     const stored = await browser.storage.local.get(['providerSelection', 'providerVision']);
     const selection = ProviderSelectionSchema.safeParse(stored.providerSelection);
     providerSelection = selection.success ? selection.data : { provider: 'openai' };
-    provider = providerSelection.provider;
-    vision = provider === 'openai' ? true : stored.providerVision === true;
+    subscriptionText = providerSelection.provider === 'chatgpt';
+    provider = providerSelection.provider === 'ollama' ? 'ollama' : 'openai';
+    vision =
+      providerSelection.provider === 'openai'
+        ? true
+        : providerSelection.provider === 'ollama'
+          ? stored.providerVision === true
+          : false;
   };
   const providerReady = loadProvider();
   browser.storage.onChanged.addListener((_changes, area) => {
@@ -46,10 +56,12 @@ export default defineBackground(() => {
   const content = createChromeContentPort();
   const cdp = createCdpExecutor(browser.debugger as never, browser.permissions as never);
   const relay: { bridge?: ReturnType<typeof createPanelBridge> } = {};
+  const companion = new ChatGptCompanion(() => browser.runtime.connectNative(CHATGPT_HOST), browser.runtime.id);
+  const planner = createPlanPlannerPort(createChromePlannerPort(server), companion, () => providerSelection);
   const controller = new TaskController({
     tabs,
     content,
-    planner: createChromePlannerPort(server),
+    planner,
     screenshots: createChromeScreenshotPort(tabs, content, cdp),
     cdp,
     checkpoints: createChromeCheckpointPort(),
@@ -60,6 +72,8 @@ export default defineBackground(() => {
       if (message.type === 'state' && schedules) void schedules.observe(message.task);
     },
     provider: () => provider,
+    subscriptionText: () => subscriptionText,
+    subscriptionTools: () => true,
     capabilities: () => ({ vision }),
     nativeBrowser: (command, originTabId, signal) =>
       executeNativeBrowserCommand(command, originTabId, browser as unknown as BrowserApi, {
@@ -95,6 +109,7 @@ export default defineBackground(() => {
     },
     tabs,
     provider: () => provider,
+    subscriptionText: () => subscriptionText,
     selection: () => ({ ...providerSelection }),
     prepare: async (selection) => {
       await loadProvider();

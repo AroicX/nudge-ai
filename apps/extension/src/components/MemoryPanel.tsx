@@ -1,3 +1,4 @@
+import { ChatGptPanel, type ChatGptPanelProps } from './ChatGptPanel';
 import { ConfirmDelete } from './ConfirmDelete';
 import { FileText, Pencil, Plus, Trash2, X, UploadCloud, UserRound, Settings2 } from 'lucide-react';
 import { useRef, useState } from 'react';
@@ -8,7 +9,9 @@ import type { MemoryWorkspace } from '../panel/use-memory-workspace';
 export function MemoryPanel({
   workspace,
   onClose,
+  chatGpt,
 }: {
+  chatGpt?: ChatGptPanelProps | undefined;
   workspace: MemoryWorkspace;
   onClose(): void;
 }) {
@@ -184,6 +187,7 @@ export function MemoryPanel({
               <Plus size={15} /> Save detail
             </button>
           </form>
+          {chatGpt ? <ChatGptPanel {...chatGpt} /> : null}
         </div>
       ) : null}
       {tab === 'documents' ? (

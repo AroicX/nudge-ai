@@ -17,26 +17,49 @@ export function ChatModelSelector({
   disabled,
   onSelection,
   onRefresh,
+  planModels = [],
+  planAccountId,
 }: {
   selection: ProviderSelection;
   health: ProviderHealth | undefined;
   disabled: boolean;
   onSelection(value: ProviderSelection): void;
   onRefresh(): void;
+  planModels?: Array<{ slug: string; displayName: string }> | undefined;
+  planAccountId?: string | undefined;
 }) {
   const items = [
     { value: 'openai', title: 'OpenAI', description: 'Configured cloud model' },
+    ...planModels.map((model) => ({
+      value: `chatgpt:${model.slug}`,
+      title: model.displayName,
+      description: 'ChatGPT plan',
+    })),
     ...Array.from(new Set(health?.ollama.models ?? [])).map((model) => ({
       value: `ollama:${model}`,
       title: model,
       description: 'Local · Ollama',
     })),
   ];
-  const value = selection.provider === 'openai' ? 'openai' : `ollama:${selection.model}`;
+  const value =
+    selection.provider === 'openai'
+      ? 'openai'
+      : selection.provider === 'chatgpt'
+        ? `chatgpt:${selection.model}`
+        : `ollama:${selection.model}`;
   // Keep a saved, currently unavailable selection readable without offering it as a new choice.
   const displayItems = items.some((item) => item.value === value)
     ? items
-    : [...items, { value, title: selection.provider === 'ollama' ? selection.model : 'OpenAI' }];
+    : [
+        ...items,
+        {
+          value,
+          title:
+            selection.provider === 'ollama' || selection.provider === 'chatgpt'
+              ? selection.model
+              : 'OpenAI',
+        },
+      ];
   return (
     <ModelSelector value={value} items={displayItems}>
       <ModelSelectorTrigger aria-label="Choose model" disabled={disabled} />
@@ -47,7 +70,11 @@ export function ChatModelSelector({
             value={value}
             onValueChange={(next) => {
               if (next === 'openai') onSelection({ provider: 'openai' });
-              else {
+              else if (next.startsWith('chatgpt:') && planAccountId) {
+                const model = next.slice('chatgpt:'.length);
+                if (planModels.some((item) => item.slug === model))
+                  onSelection({ provider: 'chatgpt', accountId: planAccountId, model });
+              } else if (next.startsWith('ollama:')) {
                 const model = next.slice('ollama:'.length);
                 if (health?.ollama.available && health.ollama.models.includes(model))
                   onSelection({
@@ -66,7 +93,11 @@ export function ChatModelSelector({
                 key={item.value}
                 {...item}
                 disabled={
-                  item.value === 'openai' ? !health?.openai.available : !health?.ollama.available
+                  item.value === 'openai'
+                    ? !health?.openai.available
+                    : item.value.startsWith('chatgpt:')
+                      ? false
+                      : !health?.ollama.available
                 }
               />
             ))}

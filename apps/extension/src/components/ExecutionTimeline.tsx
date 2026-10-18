@@ -3,6 +3,7 @@ import { AlertCircle, Check, Circle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { Reasoning, ReasoningContent, ReasoningTrigger } from '../../components/nexus-ui/reasoning';
+import { Tool, ToolContent, ToolInput, ToolOutput, ToolTrigger, type ToolStatus } from './nexus-ui/tool';
 
 type Props = {
   steps: TimelineStep[];
@@ -17,6 +18,21 @@ function seconds(start: number | undefined, end: number | undefined) {
   return start === undefined || end === undefined
     ? undefined
     : Math.max(0, Math.floor((end - start) / 1000));
+}
+
+function formatElapsed(totalSeconds: number) {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const remainder = safe % 60;
+  if (hours > 0) {
+    const parts = [`${hours}h`];
+    if (minutes > 0) parts.push(`${minutes}m`);
+    if (remainder > 0) parts.push(`${remainder}s`);
+    return parts.join(' ');
+  }
+  if (minutes > 0) return remainder > 0 ? `${minutes}m ${remainder}s` : `${minutes}m`;
+  return `${remainder}s`;
 }
 
 export function ExecutionTimeline({
@@ -49,11 +65,12 @@ export function ExecutionTimeline({
   const timed =
     startedAt !== undefined ||
     steps.some((step) => step.startedAt !== undefined && step.status === 'active');
+  const clockRunning = streaming && timed && showTimings;
   useEffect(() => {
-    if (terminal || interrupted || !timed || !showTimings) return;
+    if (!clockRunning) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [terminal, interrupted, timed, showTimings]);
+  }, [clockRunning]);
   if (!steps.length) return null;
   const hasError = status === 'failed' || steps.some((step) => step.status === 'error');
   const current = steps.findLast((step) => step.status === 'active') ?? steps.at(-1)!;
@@ -92,22 +109,46 @@ export function ExecutionTimeline({
           </ReasoningTrigger>
           {showTimings && taskSeconds !== undefined ? (
             <span className="reasoning__duration" aria-label="Task elapsed time">
-              {taskSeconds}s
+              {formatElapsed(taskSeconds)}
             </span>
           ) : null}
         </div>
         <ReasoningContent>
+          {showTimings ? (
+            <div className="nudge-tool-list">
+              {steps.map((step) => {
+                const status = toolStatus(step.status, interrupted);
+                const duration = stepDuration(step, { interrupted, terminal, lastKnownAt, now });
+                return (
+                  <div key={step.id} className="nudge-tool-row">
+                    <Tool status={status} defaultOpen={step.status === 'active' || step.status === 'error'}>
+                      <ToolTrigger name={step.label} />
+                      <ToolContent>
+                        <ToolInput payload={{ action: step.label, ...(step.detail ? { detail: step.detail } : {}) }} />
+                        <ToolOutput
+                          {...(step.sources?.length
+                            ? { payload: { sources: step.sources.map((source) => source.domain) } }
+                            : step.detail
+                              ? { payload: step.detail }
+                              : {})}
+                          errorText={step.detail ?? 'This step failed.'}
+                          showWhen={['completed', 'error']}
+                        />
+                      </ToolContent>
+                    </Tool>
+                    {duration !== undefined ? (
+                      <span className="reasoning__duration" aria-label={`${step.label} elapsed time`}>
+                        {formatElapsed(duration)}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
           <ol className="reasoning__steps">
             {steps.map((step) => {
-              const duration = seconds(
-                step.startedAt,
-                step.completedAt ??
-                  (step.status === 'active' && !terminal
-                    ? interrupted
-                      ? lastKnownAt
-                      : now
-                    : undefined),
-              );
+              const duration = stepDuration(step, { interrupted, terminal, lastKnownAt, now });
               const Icon =
                 step.status === 'error'
                   ? AlertCircle
@@ -133,7 +174,7 @@ export function ExecutionTimeline({
                         className="reasoning__duration"
                         aria-label={`${step.label} elapsed time`}
                       >
-                        {duration}s
+                        {formatElapsed(duration)}
                       </span>
                     ) : null}
                   </div>
@@ -151,8 +192,32 @@ export function ExecutionTimeline({
               );
             })}
           </ol>
+          )}
         </ReasoningContent>
       </Reasoning>
     </section>
   );
+}
+
+function stepDuration(
+  step: TimelineStep,
+  clock: { interrupted: boolean; terminal: boolean; lastKnownAt: number | undefined; now: number },
+) {
+  return seconds(
+    step.startedAt,
+    step.completedAt ??
+      (step.status === 'active' && !clock.terminal
+        ? clock.interrupted
+          ? clock.lastKnownAt
+          : clock.now
+        : undefined),
+  );
+}
+
+function toolStatus(status: TimelineStep['status'], interrupted: boolean): ToolStatus {
+  if (interrupted && status === 'active') return 'error';
+  if (status === 'active') return 'running';
+  if (status === 'completed') return 'completed';
+  if (status === 'error') return 'error';
+  return 'pending';
 }

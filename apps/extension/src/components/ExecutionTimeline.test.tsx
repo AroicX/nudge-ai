@@ -77,10 +77,63 @@ describe('ExecutionTimeline', () => {
         ]}
       />,
     );
-    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: /Task complete/i }));
     act(() => vi.advanceTimersByTime(5000));
     expect(screen.getByLabelText('Task elapsed time').textContent).toBe('7s');
     expect(screen.getByLabelText('Reading page elapsed time').textContent).toBe('3s');
+  });
+
+  it('switches to minutes after 60 seconds and freezes a finished step', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(70_000);
+    render(
+      <ExecutionTimeline
+        status="running"
+        showTimings
+        startedAt={0}
+        steps={[
+          {
+            id: 'read',
+            label: 'Reading page',
+            status: 'completed',
+            startedAt: 0,
+            completedAt: 5_000,
+          },
+          { id: 'open', label: 'Opening result', status: 'active', startedAt: 5_000 },
+        ]}
+      />,
+    );
+    expect(screen.getByLabelText('Task elapsed time').textContent).toBe('1m 10s');
+    expect(screen.getByLabelText('Reading page elapsed time').textContent).toBe('5s');
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(screen.getByLabelText('Reading page elapsed time').textContent).toBe('5s');
+    expect(screen.getByLabelText('Opening result elapsed time').textContent).toBe('1m 8s');
+    expect(screen.getByLabelText('Task elapsed time').textContent).toBe('1m 13s');
+  });
+
+  it('stops the reasoning timer when the task is no longer running', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(20_000);
+    const { rerender } = render(
+      <ExecutionTimeline
+        status="running"
+        showTimings
+        startedAt={10_000}
+        steps={[{ id: 'read', label: 'Reading page', status: 'active', startedAt: 10_000 }]}
+      />,
+    );
+    expect(screen.getByLabelText('Task elapsed time').textContent).toBe('10s');
+    rerender(
+      <ExecutionTimeline
+        status="paused"
+        showTimings
+        startedAt={10_000}
+        steps={[{ id: 'read', label: 'Reading page', status: 'active', startedAt: 10_000 }]}
+      />,
+    );
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(screen.getByLabelText('Task elapsed time').textContent).toBe('10s');
+    expect(screen.getByLabelText('Reading page elapsed time').textContent).toBe('10s');
   });
 
   it('does not invent durations for legacy steps without timestamps', () => {

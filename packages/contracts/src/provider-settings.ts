@@ -12,6 +12,11 @@ export const ProviderSelectionSchema = z.discriminatedUnion('provider', [
     baseUrl: LoopbackUrlSchema,
     model: z.string().min(1).max(200),
   }).strict(),
+  z.object({
+    provider: z.literal('chatgpt'),
+    accountId: z.string().min(1).max(80),
+    model: z.string().min(1).max(200),
+  }).strict(),
 ]);
 
 export const ProviderCapabilitiesSchema = z.object({

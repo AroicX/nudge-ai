@@ -5,8 +5,8 @@ import styles from './launcher.css?inline';
 
 const HOST_ATTRIBUTE = 'data-nudge-root';
 const MARGIN = 8;
-const WIDTH = 104;
-const HEIGHT = 56;
+const WIDTH = 188;
+const HEIGHT = 48;
 
 export interface LauncherProps {
   onOpen(): void;
@@ -28,10 +28,10 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 export function Launcher({ onOpen, onDismiss }: LauncherProps) {
-  const [position, setPosition] = useState({
-    x: window.innerWidth - WIDTH - 16,
-    y: window.innerHeight - HEIGHT - 16,
-  });
+  const [position, setPosition] = useState(() => ({
+    x: (window.innerWidth || WIDTH + 32) - WIDTH - 16,
+    y: (window.innerHeight || HEIGHT + 32) - HEIGHT - 16,
+  }));
   const drag = useRef<{ pointerId: number; offsetX: number; offsetY: number } | undefined>(
     undefined,
   );
@@ -39,6 +39,7 @@ export function Launcher({ onOpen, onDismiss }: LauncherProps) {
   useEffect(() => {
     const move = (event: PointerEvent) => {
       if (!drag.current || drag.current.pointerId !== event.pointerId) return;
+      if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return;
       setPosition({
         x: clamp(event.clientX - drag.current.offsetX, MARGIN, window.innerWidth - WIDTH - MARGIN),
         y: clamp(
@@ -70,19 +71,35 @@ export function Launcher({ onOpen, onDismiss }: LauncherProps) {
   return (
     <div className="nudge-launcher" style={{ left: position.x, top: position.y }}>
       <button
+        type="button"
         aria-label="Move Nudge launcher"
         className="nudge-launcher__drag"
         onPointerDown={startDrag}
       >
-        ⋮⋮
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+          <circle cx="3.5" cy="2" r="1" fill="currentColor" />
+          <circle cx="8.5" cy="2" r="1" fill="currentColor" />
+          <circle cx="3.5" cy="6" r="1" fill="currentColor" />
+          <circle cx="8.5" cy="6" r="1" fill="currentColor" />
+          <circle cx="3.5" cy="10" r="1" fill="currentColor" />
+          <circle cx="8.5" cy="10" r="1" fill="currentColor" />
+        </svg>
       </button>
-      <button onClick={onOpen}>Nudge</button>
+      <button type="button" className="nudge-launcher__open" aria-label="Open Nudge" onClick={onOpen}>
+        <span className="nudge-launcher__mark" aria-hidden="true">
+          N
+        </span>
+        Nudge
+      </button>
       <button
+        type="button"
         aria-label="Dismiss Nudge on this page"
         className="nudge-launcher__dismiss"
         onClick={onDismiss}
       >
-        ×
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+          <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
       </button>
     </div>
   );

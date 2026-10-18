@@ -18,6 +18,8 @@ import {
   Phone,
   Settings,
   Sun,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
 } from 'lucide-react';
 import { Fragment, useRef, useState } from 'react';
@@ -27,8 +29,39 @@ import { useFollowLatest } from '../panel/use-follow-latest';
 import { ScheduledTasks } from './ScheduledTasks';
 import type { MemoryWorkspace } from '../panel/use-memory-workspace';
 import { ChatSidebar } from './ChatSidebar';
-import { MemoryPanel } from './MemoryPanel';
+import { AccountSettings } from './AccountSettings';
+import { Toaster } from './nexus-ui/toaster';
+import {
+  Suggestion,
+  SuggestionList,
+  SuggestionPanel,
+  SuggestionPanelClose,
+  SuggestionPanelContent,
+  SuggestionPanelHeader,
+  SuggestionPanelTitle,
+  Suggestions,
+} from './nexus-ui/suggestions';
+import { Image, ImageLightbox, ImageLightboxClose, ImageLightboxOverlay, ImageLightboxPreview, ImagePreview } from './nexus-ui/image';
+import {
+  FeedbackBar,
+  FeedbackBarAction,
+  FeedbackBarActions,
+  FeedbackBarClose,
+  FeedbackBarContent,
+  FeedbackBarLabel,
+  FeedbackBarPrompt,
+} from './nexus-ui/feedback-bar';
+import {
+  Question,
+  QuestionOption,
+  QuestionOptions,
+  QuestionOther,
+  Questions,
+  QuestionsHeader,
+  QuestionsTitle,
+} from './nexus-ui/questions';
 import { ChatModelSelector } from './ChatModelSelector';
+import { type ChatGptPanelProps } from './ChatGptPanel';
 import { Composer } from './Composer';
 import { ProviderSettings, type ProviderHealth } from './ProviderSettings';
 import { Status } from './Status';
@@ -85,6 +118,8 @@ interface SidePanelProps {
   providerHealth?: ProviderHealth | undefined;
   onProviderSelection?: (value: ProviderSelection) => void;
   onRefreshProviders?: () => void;
+  planModels?: Array<{ slug: string; displayName: string }> | undefined;
+  chatGpt?: ChatGptPanelProps | undefined;
   fallbackRequest?: ProviderFallbackRequest | undefined;
   onApproveFallback?: () => void;
   onDeclineFallback?: () => void;
@@ -134,6 +169,8 @@ export function SidePanel({
   providerHealth,
   onProviderSelection = () => undefined,
   onRefreshProviders = () => undefined,
+  planModels,
+  chatGpt,
   fallbackRequest,
   onApproveFallback = () => undefined,
   onDeclineFallback = () => undefined,
@@ -148,7 +185,9 @@ export function SidePanel({
   onSelectTab = () => undefined,
 }: SidePanelProps) {
   const fallback = controller?.fallbackOffer ?? fallbackRequest;
-  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [desk, setDesk] = useState<'account' | 'settings' | null>(null);
+  const [suggestionGroup, setSuggestionGroup] = useState<keyof typeof SUGGESTION_GROUPS>();
+  const memoryOpen = desk !== null;
   const appearance = useSharedTheme();
   const conversationRef = useRef<HTMLElement>(null);
   const latest = useFollowLatest(conversationRef, !memoryOpen);
@@ -172,14 +211,14 @@ export function SidePanel({
       ),
     );
   return (
-    <div className={fullPage && memoryWorkspace ? 'chat-layout' : undefined}>
-      {fullPage && memoryWorkspace ? (
+    <div className={fullPage && memoryWorkspace ? `chat-layout${desk ? ' chat-layout--desk' : ''}` : undefined}>
+      {fullPage && memoryWorkspace && !desk ? (
         <ChatSidebar
           workspace={memoryWorkspace}
           busy={taskActive}
-          onNavigate={() => setMemoryOpen(false)}
+          onNavigate={() => setDesk(null)}
           onMemory={() => {
-            setMemoryOpen(true);
+            setDesk('account');
             void memoryWorkspace.refreshMemory().catch(() => undefined);
           }}
         />
@@ -236,7 +275,10 @@ export function SidePanel({
               type="button"
               className="icon-button icon-button--quiet"
               aria-label="Open settings"
-              onClick={() => setSettingsOpen(true)}
+              onClick={() => {
+                if (fullPage && memoryWorkspace) setDesk('settings');
+                else setSettingsOpen(true);
+              }}
             >
               <Settings size={19} />
             </button>
@@ -247,7 +289,7 @@ export function SidePanel({
             {linkedPage ? `Working with ${linkedPage.domain}` : 'No browser page attached'}{' '}
           </p>
         ) : null}
-        {!fullPage || busy || !/^(Ready|Using (?:OpenAI|local Ollama))/.test(status) ? (
+        {!fullPage || busy || !/^(Ready|Using (?:OpenAI|local Ollama|ChatGPT plan))/.test(status) ? (
           <Status value={status} />
         ) : null}
         {appearance.error ? (
@@ -261,8 +303,21 @@ export function SidePanel({
             {memoryWorkspace.error}
           </p>
         ) : null}
-        {memoryOpen && memoryWorkspace ? (
-          <MemoryPanel workspace={memoryWorkspace} onClose={() => setMemoryOpen(false)} />
+        {desk && fullPage && memoryWorkspace ? (
+          <AccountSettings
+            entry={desk}
+            workspace={memoryWorkspace}
+            appearance={appearance}
+            providerSelection={providerSelection}
+            providerHealth={providerHealth}
+            chatGpt={chatGpt}
+            onClose={() => setDesk(null)}
+            onSaveKey={onSaveKey}
+            onClearKey={onClearKey}
+            onProviderSelection={onProviderSelection}
+            onRefreshProviders={onRefreshProviders}
+            onClearHistory={() => void onClearHistory?.()}
+          />
         ) : null}
         {controller?.pendingPreview ? (
           <PreviewCard preview={controller.pendingPreview} onConfirm={onConfirm} />
@@ -306,7 +361,38 @@ export function SidePanel({
             ))}
           </section>
         ) : null}
-        {fallback ? (
+        {fullPage && fallback ? (
+          <Questions
+            items={[
+              {
+                id: 'billing',
+                type: 'single',
+                required: true,
+                prompt: fallback.reason,
+                options: [
+                  { value: 'openai', label: 'Use OpenAI for this task' },
+                  { value: 'stop', label: 'Stop' },
+                ],
+              },
+            ]}
+            onSubmit={(submission) => {
+              const answer = submission[0]?.answer;
+              if (!answer || Array.isArray(answer)) return;
+              if (answer.value === 'openai') onApproveFallback();
+              else onDeclineFallback();
+            }}
+          >
+            <QuestionsHeader>
+              <QuestionsTitle />
+            </QuestionsHeader>
+            <Question id="billing">
+              <QuestionOptions>
+                <QuestionOption value="openai">Use OpenAI for this task</QuestionOption>
+                <QuestionOption value="stop">Stop</QuestionOption>
+              </QuestionOptions>
+            </Question>
+          </Questions>
+        ) : fallback ? (
           <section className="fallback-request" aria-label="Provider approval">
             <p>{fallback.reason}</p>
             <div>
@@ -319,7 +405,59 @@ export function SidePanel({
             </div>
           </section>
         ) : null}
-        {controller?.tabChoices?.length ? (
+        {fullPage && controller?.pendingQuestion && !controller.tabChoices?.length && !fallback ? (
+          <Questions
+            items={[{ id: 'clarify', type: 'single', prompt: controller.pendingQuestion, options: [] }]}
+            onSubmit={(submission) => {
+              const answer = submission[0]?.answer;
+              if (!answer || Array.isArray(answer) || !answer.value) return;
+              onSend(String(answer.label));
+            }}
+          >
+            <QuestionsHeader>
+              <QuestionsTitle />
+            </QuestionsHeader>
+            <Question id="clarify">
+              <QuestionOptions>
+                <QuestionOther placeholder="Your answer" />
+              </QuestionOptions>
+            </Question>
+          </Questions>
+        ) : null}
+        {fullPage && controller?.tabChoices?.length ? (
+          <Questions
+            items={[
+              {
+                id: 'tab',
+                type: 'single',
+                required: true,
+                prompt: controller.pendingQuestion ?? 'Which tab should I use?',
+                options: controller.tabChoices.map((tab) => ({
+                  value: String(tab.number),
+                  label: tab.title,
+                })),
+              },
+            ]}
+            onSubmit={(submission) => {
+              const answer = submission[0]?.answer;
+              if (!answer || Array.isArray(answer)) return;
+              onSelectTab(Number(answer.value));
+            }}
+          >
+            <QuestionsHeader>
+              <QuestionsTitle />
+            </QuestionsHeader>
+            <Question id="tab">
+              <QuestionOptions>
+                {controller.tabChoices.map((tab) => (
+                  <QuestionOption key={tab.tabId} value={String(tab.number)}>
+                    {`${tab.number}. ${tab.domain} — ${tab.title}`}
+                  </QuestionOption>
+                ))}
+              </QuestionOptions>
+            </Question>
+          </Questions>
+        ) : controller?.tabChoices?.length ? (
           <section className="tab-picker" aria-label="Open browser tabs">
             <p className="tab-picker__title">Choose a tab</p>
             <div className="tab-picker__grid">
@@ -368,17 +506,28 @@ export function SidePanel({
                   {turn.sources?.length ? (
                     <div className="source-chips">
                       {turn.sources.map((source) => (
-                        <button
-                          type="button"
-                          className="source-chip"
-                          key={`${source.tabId}:${source.url}`}
-                          aria-label={`Open ${source.title} on ${source.domain}`}
-                          onClick={() => onOpenSource(source)}
-                        >
-                          {source.favIconUrl ? <img src={source.favIconUrl} alt="" /> : null}
-                          <span>{source.domain}</span>
-                          <small>{source.title}</small>
-                        </button>
+                        <div className="source-chip" key={`${source.tabId}:${source.url}`}>
+                          {fullPage && source.favIconUrl ? (
+                            <Image src={source.favIconUrl} alt={source.title}>
+                              <ImagePreview />
+                              <ImageLightbox>
+                                <ImageLightboxOverlay />
+                                <ImageLightboxPreview alt={source.title} />
+                                <ImageLightboxClose />
+                              </ImageLightbox>
+                            </Image>
+                          ) : source.favIconUrl ? (
+                            <img src={source.favIconUrl} alt="" />
+                          ) : null}
+                          <button
+                            type="button"
+                            aria-label={`Open ${source.title} on ${source.domain}`}
+                            onClick={() => onOpenSource(source)}
+                          >
+                            <span>{source.domain}</span>
+                            <small>{source.title}</small>
+                          </button>
+                        </div>
                       ))}
                     </div>
                   ) : null}
@@ -390,6 +539,7 @@ export function SidePanel({
                   >
                     {copiedId === turn.id ? <Check size={14} /> : <Copy size={14} />}
                   </button>
+                  {fullPage && turn.role === 'assistant' ? <ReplyFeedback id={turn.id} /> : null}
                 </article>
                 {turn.progress ? (
                   <ExecutionTimeline
@@ -422,6 +572,51 @@ export function SidePanel({
               <div className="empty">
                 {fullPage ? <h2>What's on your mind?</h2> : null}
                 <p>Ask Nudge to find, compare, filter, or navigate.</p>
+                {fullPage ? (
+                  <Suggestions
+                    onSelect={(value) => {
+                      if (value in SUGGESTION_GROUPS) {
+                        setSuggestionGroup(value as keyof typeof SUGGESTION_GROUPS);
+                        return;
+                      }
+                      setDraft(value);
+                      setSuggestionGroup(undefined);
+                    }}
+                  >
+                    <SuggestionList>
+                      <Suggestion highlight="page">Summarize the page I'm on</Suggestion>
+                      <Suggestion highlight="options">Compare the options on this site</Suggestion>
+                      <Suggestion highlight="cheapest">Find the cheapest matching result</Suggestion>
+                      {(Object.keys(SUGGESTION_GROUPS) as Array<keyof typeof SUGGESTION_GROUPS>).map((group) => (
+                        <Suggestion key={group} variant="outline" value={group}>
+                          {group}
+                        </Suggestion>
+                      ))}
+                    </SuggestionList>
+                    {suggestionGroup ? (
+                      <SuggestionPanel
+                        open
+                        onOpenChange={(open) => {
+                          if (!open) setSuggestionGroup(undefined);
+                        }}
+                      >
+                        <SuggestionPanelHeader>
+                          <SuggestionPanelTitle>{suggestionGroup}</SuggestionPanelTitle>
+                          <SuggestionPanelClose />
+                        </SuggestionPanelHeader>
+                        <SuggestionPanelContent>
+                          <SuggestionList orientation="vertical">
+                            {SUGGESTION_GROUPS[suggestionGroup].map((prompt) => (
+                              <Suggestion key={prompt} variant="ghost">
+                                {prompt}
+                              </Suggestion>
+                            ))}
+                          </SuggestionList>
+                        </SuggestionPanelContent>
+                      </SuggestionPanel>
+                    ) : null}
+                  </Suggestions>
+                ) : null}
               </div>
               <ExecutionTimeline
                 showTimings={fullPage}
@@ -459,6 +654,10 @@ export function SidePanel({
                   selection={providerSelection}
                   health={providerHealth}
                   disabled={busy || providerPending}
+                  planModels={planModels}
+                  planAccountId={
+                    providerSelection.provider === 'chatgpt' ? providerSelection.accountId : chatGpt?.activeAccountId
+                  }
                   onSelection={onProviderSelection}
                   onRefresh={onRefreshProviders}
                 />
@@ -493,6 +692,9 @@ export function SidePanel({
             onStartVoice={onStartVoice}
             onEndVoice={onEndVoice}
           />
+          {fullPage && providerSelection.provider === 'chatgpt' ? (
+            <p className="composer-hint">{`Voice calls and dictation still use separately billed OpenAI API requests. They do not use your ChatGPT plan.`}</p>
+          ) : null}
           {fullPage && providerError ? (
             <p className="provider-error" role="alert">
               {providerError}
@@ -502,7 +704,9 @@ export function SidePanel({
             <p className="composer-hint">Nudge works in your browser. You stay in control.</p>
           ) : null}
         </div>
+        {fullPage ? <Toaster theme={appearance.theme} /> : null}
         <ProviderSettings
+          fullPage={fullPage}
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
           onSave={onSaveKey}
@@ -515,5 +719,43 @@ export function SidePanel({
         />
       </main>
     </div>
+  );
+}
+
+const SUGGESTION_GROUPS = {
+  Browse: ['Open the pricing page', 'List the headings on this page'],
+  Compare: ['Compare the plans on this page', 'Which option is the least expensive?'],
+  Remember: ['What do you remember about me?', 'Save that I prefer short answers'],
+} as const;
+
+function ReplyFeedback({ id }: { id: string }) {
+  const [vote, setVote] = useState<'up' | 'down'>();
+  const [hidden, setHidden] = useState(false);
+  if (hidden) return null;
+  return (
+    <FeedbackBar data-feedback={id}>
+      <FeedbackBarContent>
+        <FeedbackBarPrompt>
+          <FeedbackBarLabel>{vote ? 'Thanks. This stays on this screen.' : 'Was this response helpful?'}</FeedbackBarLabel>
+        </FeedbackBarPrompt>
+        <FeedbackBarActions>
+          <FeedbackBarAction asChild>
+            <button type="button" aria-label="Helpful" aria-pressed={vote === 'up'} onClick={() => setVote('up')}>
+              <ThumbsUp size={14} />
+            </button>
+          </FeedbackBarAction>
+          <FeedbackBarAction asChild>
+            <button type="button" aria-label="Not helpful" aria-pressed={vote === 'down'} onClick={() => setVote('down')}>
+              <ThumbsDown size={14} />
+            </button>
+          </FeedbackBarAction>
+        </FeedbackBarActions>
+      </FeedbackBarContent>
+      <FeedbackBarClose>
+        <button type="button" aria-label="Dismiss feedback" onClick={() => setHidden(true)}>
+          Close
+        </button>
+      </FeedbackBarClose>
+    </FeedbackBar>
   );
 }

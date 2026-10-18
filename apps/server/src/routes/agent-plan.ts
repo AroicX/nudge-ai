@@ -67,6 +67,20 @@ async function runWithTimeout<T>(
   }
 }
 
+function createPlanner(
+  options: AgentPlanRouteOptions,
+  request: FastifyRequest,
+  reply: FastifyReply,
+): PlannerProvider | undefined {
+  try {
+    return options.plannerFactory(override(request));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Planner request failed.';
+    void reply.code(/ChatGPT plan/.test(message) ? 409 : 502).send({ error: message });
+    return undefined;
+  }
+}
+
 export function registerAgentPlanRoutes(
   app: FastifyInstance,
   options: AgentPlanRouteOptions,
@@ -80,7 +94,8 @@ export function registerAgentPlanRoutes(
     async (request, reply) => {
       const input = PlannerRequestSchema.safeParse(request.body);
       if (!input.success) return reply.code(400).send({ error: 'Invalid planner request.' });
-      const planner: PlannerProvider = options.plannerFactory(override(request));
+      const planner = createPlanner(options, request, reply);
+      if (!planner) return;
       return runWithTimeout(
         reply,
         request,
@@ -111,7 +126,8 @@ export function registerAgentPlanRoutes(
     async (request, reply) => {
       const input = ScopeRequestSchema.safeParse(request.body);
       if (!input.success) return reply.code(400).send({ error: 'Invalid scope request.' });
-      const planner = options.plannerFactory(override(request));
+      const planner = createPlanner(options, request, reply);
+      if (!planner) return;
       return runWithTimeout(
         reply,
         request,

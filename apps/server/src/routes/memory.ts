@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, preHandlerHookHandler } from 'fasti
 import { z } from 'zod';
 import { MemoryIdSchema, MemoryMessagesSchema } from '@nudge/contracts';
 import { MemoryError, type MemoryStore } from '../memory/memory-store';
+import { MEMORY_REFERENCE_RULES, referenceContext } from '../memory/reference-context';
 
 const chatInput = z
   .object({ id: MemoryIdSchema.optional(), title: z.string().trim().min(1).max(200).optional() })
@@ -125,4 +126,11 @@ export function registerMemoryRoutes(
       return { results: store.search(q, limit) };
     }),
   );
+  app.post('/api/memory/context', settings, async (request, reply) => {
+    const input = z.object({ text: z.string().trim().min(1).max(4000) }).strict().safeParse(request.body);
+    if (!input.success) return reply.code(400).send({ error: 'Invalid context request.' });
+    return {
+      instructions: `You are Nudge, the user's personal browser companion. Answer conversational questions, review or draft text using the supplied local references. This channel cannot execute browser actions. Never claim that you opened, applied, submitted, sent, or scheduled anything. If the request requires browser action, explain what information is needed without inventing a result. ${MEMORY_REFERENCE_RULES} Say when a requested memory is absent. Keep replies concise but include the actual answer. Relevant saved reference data follows as JSON:\n${referenceContext(store, input.data.text)}`,
+    };
+  });
 }

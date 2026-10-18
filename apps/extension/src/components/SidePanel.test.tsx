@@ -467,7 +467,7 @@ it('freezes interrupted historical progress while keeping the current controller
     );
     expect(screen.queryByRole('button', { name: 'Task interrupted' })).toBeNull();
     act(() => vi.advanceTimersByTime(2000));
-    expect(screen.getByLabelText('Task elapsed time').textContent).toBe('106s');
+    expect(screen.getByLabelText('Task elapsed time').textContent).toBe('1m 46s');
   } finally {
     vi.useRealTimers();
   }

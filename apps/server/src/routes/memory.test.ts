@@ -32,6 +32,10 @@ it('protects every memory operation and validates writes', async () => {
     '/api/memory/search?q=name',
   ])
     expect((await app.inject({ url })).statusCode).toBe(401);
+  expect(
+    (await app.inject({ method: 'POST', url: '/api/memory/context', payload: { text: 'Who am I?' } }))
+      .statusCode,
+  ).toBe(401);
   const headers = { authorization: 'test' };
   expect(
     (

@@ -255,17 +255,18 @@ for (const workflow of Object.keys(workflows) as Array<keyof typeof workflows>) 
         await fullPageReady;
       }
       if (workflow === 'recall') {
-        await panel.getByRole('button', { name: 'Memory & profile', exact: true }).click();
+        await panel.getByRole('button', { name: 'Account', exact: true }).click();
         for (const [key, value] of [
           ['name', 'Jordan Vale'],
           ['email', 'jordan.vale@example.test'],
         ]) {
+          await panel.getByRole('button', { name: 'Add detail', exact: true }).click();
           await panel.getByLabel('Detail name', { exact: true }).fill(key!);
           await panel.getByLabel('What should Nudge remember?').fill(value!);
           await panel.getByRole('button', { name: 'Save detail', exact: true }).click();
-          await expect(panel.locator('.memory-list')).toContainText(value!);
+          await expect(panel.getByText(value!, { exact: true })).toBeVisible();
         }
-        await panel.getByRole('button', { name: 'Close memory', exact: true }).click();
+        await panel.getByRole('button', { name: 'Close account', exact: true }).click();
       }
       const instruction = workflows[workflow].instruction;
       // Use the visible composer and the actual active-tab selection.

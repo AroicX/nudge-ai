@@ -51,6 +51,31 @@ function make(browser: FakeBrowser, planner: FakePlanner, extra: Partial<Control
 }
 
 describe('TaskController', () => {
+  it('asks before a browser task can use API billing while ChatGPT plan text is selected', async () => {
+    const browser = new FakeBrowser().addTab(1, jobsPage());
+    const planner = new FakePlanner([{ toolCall: { tool: 'report_partial', done: [], remaining: ['done'], reason: 'stop' } }]);
+    const scope = vi.spyOn(planner, 'scope');
+    const { controller } = make(browser, planner, { subscriptionText: () => true });
+    await controller.instruct('Find the cheapest matching job', 'text', 1);
+    expect(scope).not.toHaveBeenCalled();
+    expect(controller.snapshot().fallbackOffer?.reason).toMatch(/ChatGPT plan/);
+    controller.approveFallback(true);
+    await vi.waitFor(() => expect(scope).toHaveBeenCalled());
+    expect(scope.mock.calls[0]?.[2]).toBe('openai');
+  });
+
+  it('uses the local plan tool loop without requesting API billing when supported', async () => {
+    const browser = new FakeBrowser().addTab(1, jobsPage());
+    const planner = new FakePlanner([{ toolCall: { tool: 'report_partial', done: [], remaining: ['done'], reason: 'stop' } }]);
+    const scope = vi.spyOn(planner, 'scope');
+    const { controller } = make(browser, planner, { subscriptionText: () => true, subscriptionTools: () => true });
+    await controller.instruct('Read the page title', 'text', 1);
+    await vi.waitFor(() => expect(scope).toHaveBeenCalled());
+    expect(scope.mock.calls[0]?.[2]).toBeUndefined();
+    expect(controller.snapshot().fallbackOffer).toBeUndefined();
+    await vi.waitFor(() => expect(planner.requests.length).toBeGreaterThan(0));
+  });
+
   it('runs an explicit native command without a model or a readable web page', async () => {
     const browser = new FakeBrowser();
     const planner = new FakePlanner([]);

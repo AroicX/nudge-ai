@@ -120,4 +120,7 @@ export class MemoryClient {
       sources?: Array<{ kind: string; id: string; title: string; source: string }>;
     }>('/chat', 'POST', { chatId, text, provider }, signal);
   }
+  context(text: string, signal?: AbortSignal) {
+    return this.request<{ instructions: string }>('/context', 'POST', { text }, signal);
+  }
 }

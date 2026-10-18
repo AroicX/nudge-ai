@@ -53,6 +53,7 @@ interface Deps {
     waitForComplete(id: number, ms: number): Promise<void>;
   };
   provider(): 'openai' | 'ollama';
+  subscriptionText?: () => boolean;
   selection?(): ProviderSelection;
   prepare?(selection: ProviderSelection): Promise<void>;
   snapshot(): { status: string; taskId?: string | undefined };
@@ -113,6 +114,12 @@ export class DeferredTasks {
       const say = (message: string) => this.deps.emit({ type: 'milestone', text: message });
       if (parsed.kind === 'clarify') {
         say(HELP);
+        return true;
+      }
+      if (this.deps.subscriptionText?.()) {
+        say(
+          'ChatGPT plan text cannot run a scheduled browser task. Choose OpenAI or Ollama in full-screen settings first.',
+        );
         return true;
       }
       const origin = (await this.deps.tabs.list()).find((tab) => tab.tabId === originTabId);

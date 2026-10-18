@@ -30,10 +30,13 @@ describe('launcher lifecycle', () => {
 });
 
 describe('Launcher', () => {
-  it('can be dismissed for the current page', () => {
+  it('opens the side panel from the launcher and can be dismissed', () => {
+    const onOpen = vi.fn();
     const onDismiss = vi.fn();
-    render(<Launcher onOpen={vi.fn()} onDismiss={onDismiss} />);
+    render(<Launcher onOpen={onOpen} onDismiss={onDismiss} />);
 
+    fireEvent.click(screen.getByRole('button', { name: 'Open Nudge' }));
+    expect(onOpen).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss Nudge on this page' }));
     expect(onDismiss).toHaveBeenCalledOnce();
   });

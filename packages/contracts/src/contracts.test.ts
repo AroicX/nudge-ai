@@ -287,6 +287,7 @@ describe('browser-wide contracts', () => {
   it('validates provider choices and capabilities', () => {
     expect(ProviderSelectionSchema.safeParse({ provider: 'openai' }).success).toBe(true);
     expect(ProviderSelectionSchema.safeParse({ provider: 'ollama', baseUrl: 'http://127.0.0.1:11434', model: 'qwen3' }).success).toBe(true);
+    expect(ProviderSelectionSchema.safeParse({ provider: 'chatgpt', accountId: 'account-1', model: 'gpt-test' }).success).toBe(true);
     expect(ProviderSelectionSchema.safeParse({ provider: 'anthropic' }).success).toBe(false);
     expect(ProviderCapabilitiesSchema.safeParse({ browserTools: true, realtimeVoice: false, dictation: true }).success).toBe(true);
   });

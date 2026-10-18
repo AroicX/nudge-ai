@@ -210,3 +210,13 @@
     padding: 10px;
   }
 }
+.memory-panel .chatgpt-panel {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--nudge-border, #e4e1ef);
+}
+
+.memory-panel .chatgpt-panel__copy p,
+.memory-panel .chatgpt-panel__copy li {
+  color: var(--nudge-muted);
+}
