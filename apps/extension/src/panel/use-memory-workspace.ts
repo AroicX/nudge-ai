@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { MemoryClient, MemoryDocument, MemoryFact, SavedChat } from '../api/memory-client';
+import type { DocumentStatus, MemoryClient, MemoryDocument, MemoryFact, SavedChat } from '../api/memory-client';
 import { historyStore } from '../history/history-store';
 import { useNudgeStore } from '../state/use-nudge-store';
 
@@ -13,6 +13,7 @@ export function useMemoryWorkspace(client: MemoryClient) {
   const [error, setError] = useState<string>();
   const [facts, setFacts] = useState<MemoryFact[]>([]);
   const [documents, setDocuments] = useState<MemoryDocument[]>([]);
+  const [documentStatus, setDocumentStatus] = useState<Record<string, DocumentStatus>>({});
   const active = useRef<{ id: string; generation: number } | undefined>(undefined);
   const revision = useRef(0);
   const chatsRef = useRef(chats);
@@ -30,9 +31,17 @@ export function useMemoryWorkspace(client: MemoryClient) {
     await browser.storage.local.set({ [CACHE_LIST]: list });
   };
   const refreshMemory = async () => {
-    const [nextFacts, nextDocuments] = await Promise.all([client.facts(), client.documents()]);
+    const [nextFacts, nextDocuments, status] = await Promise.all([
+      client.facts(),
+      client.documents(),
+      // Older servers lack this route; documents still work without the flags.
+      Promise.resolve()
+        .then(() => client.documentStatus())
+        .catch(() => undefined),
+    ]);
     setFacts(nextFacts);
     setDocuments(nextDocuments);
+    setDocumentStatus(Object.fromEntries((status?.documents ?? []).map((item) => [item.id, item])));
   };
   const flush = async () => {
     clearTimeout(timer.current);
@@ -216,6 +225,7 @@ export function useMemoryWorkspace(client: MemoryClient) {
     error,
     facts,
     documents,
+    documentStatus,
     refreshMemory: () => run(refreshMemory),
     flush,
     selectChat: (id: string) => changeChat(() => choose(id)),
@@ -283,6 +293,11 @@ export function useMemoryWorkspace(client: MemoryClient) {
     uploadDocument: (file: File) =>
       run(async () => {
         await client.uploadDocument(file);
+        await refreshMemory();
+      }),
+    setDefaultDocument: (id: string, isDefault: boolean) =>
+      run(async () => {
+        await client.setDefaultDocument(id, isDefault);
         await refreshMemory();
       }),
     deleteDocument: (id: string) =>

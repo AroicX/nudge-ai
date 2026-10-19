@@ -16,3 +16,5 @@ test-results/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+/release/
+gitleaks-report.json

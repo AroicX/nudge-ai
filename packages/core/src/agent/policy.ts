@@ -101,7 +101,14 @@ export function evaluateToolCall(ctx: PolicyCtx, call: ToolCall): PolicyOutcome 
   if (risk.category === 'purchase' || risk.category === 'auth_challenge') {
     return { decision: 'block', reason: 'This step needs you to do it yourself.' };
   }
-  if (!ctx.authorization.categories.includes(risk.category)) {
+  const ordinaryFieldEntry =
+    risk.category === 'fill' &&
+    (call.tool === 'type_text' ||
+      call.tool === 'type_at' ||
+      call.tool === 'select_option' ||
+      call.tool === 'choose_option' ||
+      call.tool === 'press_keys');
+  if (!ordinaryFieldEntry && !ctx.authorization.categories.includes(risk.category)) {
     return { decision: 'block', reason: `That would ${risk.category.replace('_', ' ')}, which you did not ask for.` };
   }
 

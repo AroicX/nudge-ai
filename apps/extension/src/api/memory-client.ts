@@ -1,4 +1,4 @@
-import type { PersistedTurn } from '@nudge/contracts';
+import type { ChatImageInput, PersistedTurn } from '@nudge/contracts';
 
 export interface SavedChat {
   id: string;
@@ -19,6 +19,13 @@ export interface MemoryDocument {
   text: string;
   source: string;
   createdAt: string;
+}
+export interface DocumentStatus {
+  id: string;
+  isDefault: boolean;
+  attachable: boolean;
+  looksLikeCv: boolean;
+  parseStatus: 'parsed' | 'partial' | 'empty';
 }
 export class MemoryClient {
   constructor(
@@ -103,6 +110,17 @@ export class MemoryClient {
   async documents() {
     return (await this.request<{ documents: MemoryDocument[] }>('/documents')).documents;
   }
+  /** Default-CV flag, attachability and parse status per document. */
+  async documentStatus() {
+    return this.request<{
+      documents: DocumentStatus[];
+      selectedDocumentId: string | null;
+      selection: 'default' | 'only_cv' | 'most_recent_cv' | 'none';
+    }>('/documents/status');
+  }
+  async setDefaultDocument(id: string, isDefault: boolean) {
+    await this.request(`/documents/${encodeURIComponent(id)}/default`, 'PUT', { isDefault });
+  }
   async saveDocument(filename: string, text: string) {
     await this.request('/documents', 'POST', { filename, text });
   }
@@ -114,11 +132,17 @@ export class MemoryClient {
   async deleteDocument(id: string) {
     await this.request(`/documents/${encodeURIComponent(id)}`, 'DELETE');
   }
-  chat(chatId: string, text: string, provider: 'openai' | 'ollama', signal?: AbortSignal) {
+  chat(
+    chatId: string,
+    text: string,
+    provider: 'openai' | 'ollama',
+    signal?: AbortSignal,
+    images: ChatImageInput[] = [],
+  ) {
     return this.request<{
       text: string;
       sources?: Array<{ kind: string; id: string; title: string; source: string }>;
-    }>('/chat', 'POST', { chatId, text, provider }, signal);
+    }>('/chat', 'POST', { chatId, text, provider, ...(images.length ? { images } : {}) }, signal);
   }
   context(text: string, signal?: AbortSignal) {
     return this.request<{ instructions: string }>('/context', 'POST', { text }, signal);

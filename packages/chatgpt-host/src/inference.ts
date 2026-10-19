@@ -47,7 +47,7 @@ export function parseModelList(body: unknown): PlanModel[] {
 
 export interface ResponseInput {
   role: 'user' | 'assistant' | 'developer';
-  content: string;
+  content: string | Array<{ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string }>;
 }
 
 export function responsesBody(input: {
@@ -74,7 +74,7 @@ export function explainPlanError(error: PlanRequestError): string {
     case 'subscription_sharing_user_unavailable':
       return 'ChatGPT plan usage could not be checked. Try again later.';
     case 'subscription_sharing_unsupported_capability':
-      return 'This text request uses a capability ChatGPT plan access does not support.';
+      return 'This request uses a capability ChatGPT plan access does not support (for example images with this model). Remove the images or choose another model; Nudge will not switch to API billing.';
     case 'subscription_sharing_route_not_supported':
       return 'ChatGPT plan access refused this request route.';
     case 'subscription_sharing_invalid_user':

@@ -3,7 +3,14 @@ import { z } from 'zod';
 
 const ExtensionIdSchema = z.string().regex(/^[a-p]{32}$/);
 const IdSchema = z.string().min(1).max(80);
-const MessageSchema = z.object({ role: z.enum(['user', 'assistant', 'developer']), content: z.string().min(1).max(4000) });
+const ContentPartSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('input_text'), text: z.string().min(1).max(4000) }).strict(),
+  z.object({ type: z.literal('input_image'), image_url: z.string().max(6_000_000).regex(/^data:image\/(?:png|jpeg|webp|gif);base64,/) }).strict(),
+]);
+const MessageSchema = z.object({
+  role: z.enum(['user', 'assistant', 'developer']),
+  content: z.union([z.string().min(1).max(4000), z.array(ContentPartSchema).min(1).max(5)]),
+});
 
 export const HostRequestSchema = z.discriminatedUnion('type', [
   z.object({ v: z.literal(1), extensionId: ExtensionIdSchema, id: IdSchema, type: z.literal('plan'), accountId: IdSchema, model: z.string().min(1).max(200), request: PlannerRequestSchema }).strict(),
@@ -75,7 +82,8 @@ export function pushFrames(
   let rest = buffer;
   while (rest.length >= 4) {
     const length = rest.readUInt32LE(0);
-    if (length <= 0 || length > 1024 * 1024) throw new Error('Native message length is invalid.');
+    // Chrome allows up to 64 MiB toward the host; image chat turns need more than 1 MiB.
+    if (length <= 0 || length > 32 * 1024 * 1024) throw new Error('Native message length is invalid.');
     if (rest.length < 4 + length) break;
     onMessage(JSON.parse(rest.subarray(4, 4 + length).toString('utf8')));
     rest = rest.subarray(4 + length);

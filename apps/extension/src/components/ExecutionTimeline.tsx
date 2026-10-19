@@ -14,6 +14,14 @@ type Props = {
   historical?: boolean;
 };
 
+function isPlannerTick(label: string) {
+  return (
+    label === 'Choosing the next step' ||
+    label === 'Chose the next step' ||
+    label === 'Discarded a step planned before your change'
+  );
+}
+
 function seconds(start: number | undefined, end: number | undefined) {
   return start === undefined || end === undefined
     ? undefined
@@ -71,13 +79,14 @@ export function ExecutionTimeline({
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [clockRunning]);
-  if (!steps.length) return null;
-  const hasError = status === 'failed' || steps.some((step) => step.status === 'error');
-  const current = steps.findLast((step) => step.status === 'active') ?? steps.at(-1)!;
+  const shown = steps.filter((step) => !isPlannerTick(step.label));
+  if (!shown.length && !terminal) return null;
+  const hasError = status === 'failed' || shown.some((step) => step.status === 'error');
+  const current = shown.findLast((step) => step.status === 'active') ?? shown.at(-1);
   const label = interrupted
     ? 'Task interrupted'
     : complete
-      ? 'Task complete'
+      ? 'Task completed'
       : status === 'cancelled'
         ? 'Task stopped'
         : status === 'partially_completed'
@@ -86,7 +95,7 @@ export function ExecutionTimeline({
             ? 'Nudge needs attention'
             : status === 'paused'
               ? 'Task paused'
-              : current.label;
+              : (current?.label ?? 'Working');
   const taskSeconds = seconds(
     startedAt,
     completedAt ?? (interrupted ? lastKnownAt : terminal ? undefined : now),
@@ -116,7 +125,7 @@ export function ExecutionTimeline({
         <ReasoningContent>
           {showTimings ? (
             <div className="nudge-tool-list">
-              {steps.map((step) => {
+              {shown.map((step) => {
                 const status = toolStatus(step.status, interrupted);
                 const duration = stepDuration(step, { interrupted, terminal, lastKnownAt, now });
                 return (
@@ -147,7 +156,7 @@ export function ExecutionTimeline({
             </div>
           ) : (
           <ol className="reasoning__steps">
-            {steps.map((step) => {
+            {shown.map((step) => {
               const duration = stepDuration(step, { interrupted, terminal, lastKnownAt, now });
               const Icon =
                 step.status === 'error'

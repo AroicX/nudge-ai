@@ -1,0 +1,9 @@
+title = "Nudge gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Chrome storage key name. Not a credential."
+regexTarget = "match"
+regexes = ['''nudgeConversationV1''']

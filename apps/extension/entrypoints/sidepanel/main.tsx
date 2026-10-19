@@ -45,7 +45,14 @@ import {
 import { VoiceProviderGate } from '../../src/providers/voice-provider-gate';
 import { reconcileProviderSelection } from '../../src/providers/provider-selection';
 import { ChatGptCompanion, CHATGPT_HOST, type ChatGptAccount } from '../../src/chatgpt/companion';
-import { planMessages, routeEligibleText } from '../../src/chatgpt/text-route';
+import { planMessages, routeEligibleText, withImages } from '../../src/chatgpt/text-route';
+import {
+  canvasCodec,
+  imageProblem,
+  imageSupport,
+  prepareImage,
+  type PendingImage,
+} from '../../src/chat/image-attachments';
 import '../../src/styles/app.css';
 
 const client = new ServerClient(
@@ -70,7 +77,7 @@ const STATUS: Record<string, string> = {
   waiting_for_user: 'Waiting for you',
   waiting_for_confirmation: 'Waiting for your OK',
   paused: 'Paused',
-  completed: 'Done',
+  completed: 'Ready',
   partially_completed: 'Partly done',
   failed: 'Stopped — could not finish',
   cancelled: 'Stopped',
@@ -83,6 +90,41 @@ function App() {
   const [chatGptAccounts, setChatGptAccounts] = useState<ChatGptAccount[]>([]);
   const [chatGptActive, setChatGptActive] = useState<string>();
   const [chatGptError, setChatGptError] = useState<string>();
+  const [images, setImages] = useState<PendingImage[]>([]);
+  const [imageError, setImageError] = useState<string>();
+  const imagesRef = useRef<PendingImage[]>([]);
+  imagesRef.current = images;
+  const addImages = (files: File[]) => {
+    setImageError(undefined);
+    let count = imagesRef.current.length;
+    for (const file of files) {
+      const problem = imageProblem(file, count);
+      if (problem) {
+        setImageError(problem);
+        continue;
+      }
+      count += 1;
+      const id = crypto.randomUUID();
+      setImages((current) => [...current, { id, name: file.name, status: 'preparing' }]);
+      void prepareImage(file, canvasCodec)
+        .then(({ input, turn }) =>
+          setImages((current) => current.map((item) => (item.id === id ? { ...item, status: 'ready', input, turn } : item))),
+        )
+        .catch((error: unknown) =>
+          setImages((current) =>
+            current.map((item) =>
+              item.id === id
+                ? { ...item, status: 'error', error: error instanceof Error ? error.message : 'Could not read this image.' }
+                : item,
+            ),
+          ),
+        );
+    }
+  };
+  const removeImage = (id: string) => {
+    setImageError(undefined);
+    setImages((current) => current.filter((item) => item.id !== id));
+  };
   const [chatGptBusy, setChatGptBusy] = useState(false);
   const [chatGptWelcome, setChatGptWelcome] = useState(false);
   const [chatGptLimit, setChatGptLimit] = useState(false);
@@ -235,7 +277,13 @@ function App() {
       return;
     }
     if (message.type === 'milestone') {
-      store.setStatus(message.text.slice(0, 200));
+      const current = useNudgeStore.getState().controller?.status;
+      if (current === 'completed') store.setStatus('Ready');
+      else if (
+        !current ||
+        !['partially_completed', 'failed', 'cancelled'].includes(current)
+      )
+        store.setStatus(message.text.slice(0, 200));
       if (localProviderRef.current) localVoiceRef.current?.speakMilestone(message.text);
       else voiceTransportRef.current?.speakMilestone?.(message.text);
       return;
@@ -256,10 +304,14 @@ function App() {
       .find((turn) => turn.role === 'user' && turn.progress && !isContinuationRequest(turn.text))?.text;
     const resumed = resumeBrowserInstruction(text, previousBrowserTask, snapshot.controller?.status);
     const command = resumed ?? text;
+    // Images are answered in chat; they are never sent to the browser planner.
+    const attached = source === 'text' ? imagesRef.current.filter((item) => item.status === 'ready' && item.input && item.turn) : [];
+    if (attached.length && !isConversationRequest(text, snapshot.controller?.status))
+      state.setStatus('Images are answered in chat. Browser tasks cannot use attached images yet.');
     if (
       source === 'text' &&
       !resumed &&
-      isConversationRequest(text, snapshot.controller?.status)
+      (attached.length > 0 || isConversationRequest(text, snapshot.controller?.status))
     ) {
       if (chatPending || chatAbort.current) return;
       if (!memory.activeId || memory.loading) {
@@ -287,7 +339,22 @@ function App() {
             taskStatus: useNudgeStore.getState().controller?.status,
             selection,
           });
-          if (route.kind !== 'plan' && route.kind !== 'conversation') return;
+          const routed =
+            attached.length && route.kind === 'browser' && selection.provider === 'chatgpt'
+              ? ({ kind: 'plan', accountId: selection.accountId, model: selection.model } as const)
+              : attached.length && route.kind === 'browser' && selection.provider !== 'chatgpt'
+                ? ({ kind: 'conversation', provider: selection.provider } as const)
+                : route;
+          if (routed.kind !== 'plan' && routed.kind !== 'conversation') return;
+          if (attached.length) {
+            // Never switch provider or billing to read images.
+            const support = imageSupport(selection, providerVision(selection));
+            if (!support.ok) {
+              setImageError(support.reason);
+              state.setStatus(support.reason);
+              return;
+            }
+          }
           const abort = new AbortController();
           chatAbort.current = abort;
           setChatPending(true);
@@ -299,11 +366,16 @@ function App() {
               role: 'user',
               text,
               createdAt: new Date().toISOString(),
+              ...(attached.length ? { images: attached.map((item) => item.turn!) } : {}),
             });
+            if (attached.length) {
+              setImages((current) => current.filter((item) => !attached.some((sent) => sent.id === item.id)));
+              setImageError(undefined);
+            }
             useNudgeStore.setState({ pendingTaskTurnId: undefined });
             state.setStatus('Thinking…');
             await memory.flush();
-            if (route.kind === 'plan') {
+            if (routed.kind === 'plan') {
               const context = await memoryClient.context(text, abort.signal);
               const bindingKey = `nudgeChatGptAccount:${chatId}`;
               const stored = await browser.storage.local.get(bindingKey);
@@ -317,7 +389,7 @@ function App() {
                 history,
                 question: text,
                 ...(typeof bound === 'string' ? { boundAccountId: bound } : {}),
-                activeAccountId: route.accountId,
+                activeAccountId: routed.accountId,
               });
               if (!planned.ok) {
                 state.setStatus(planned.message);
@@ -326,10 +398,10 @@ function App() {
               replyId = crypto.randomUUID();
               let assembled = '';
               await chatGpt.current.respond({
-                accountId: route.accountId,
-                model: route.model,
+                accountId: routed.accountId,
+                model: routed.model,
                 instructions: context.instructions,
-                messages: planned.messages,
+                messages: withImages(planned.messages, attached.map((item) => item.input!)),
                 signal: abort.signal,
                 onDelta: (delta) => {
                   assembled = (assembled + delta).slice(0, 4000);
@@ -346,12 +418,18 @@ function App() {
               });
               if (!abort.signal.aborted) {
                 if (!assembled.trim()) throw new Error('ChatGPT returned an empty reply.');
-                await browser.storage.local.set({ [bindingKey]: route.accountId });
+                await browser.storage.local.set({ [bindingKey]: routed.accountId });
                 await memory.flush();
                 state.setStatus('Using ChatGPT plan.');
               }
             } else {
-              const reply = await memoryClient.chat(chatId, text, route.provider, abort.signal);
+              const reply = await memoryClient.chat(
+                chatId,
+                text,
+                routed.provider,
+                abort.signal,
+                attached.map((item) => item.input!),
+              );
               if (!abort.signal.aborted) {
                 const references = reply.sources?.map((source) => source.title).filter(Boolean);
                 assistant(
@@ -741,6 +819,10 @@ function App() {
       : undefined;
   return (
     <SidePanel
+      images={images}
+      imageError={imageError}
+      onAddImages={addImages}
+      onRemoveImage={removeImage}
       allowTaskUpdates={!chatPending}
       memoryWorkspace={memory}
       fullPage={pageMode.fullPage}
@@ -754,7 +836,10 @@ function App() {
           )
           .catch(() => state.setStatus('Could not open the full-page chat. Please try again.'));
       }}
-      busy={state.busy || chatPending}
+      busy={
+        chatPending ||
+        ['planning', 'running', 'waiting_for_page'].includes(state.controller?.status ?? '')
+      }
       scheduledTasks={scheduledTasks}
       onCancelSchedule={(id) => controller.cancelSchedule(id)}
       onManageSchedule={(id, action, changes) => controller.manageSchedule(id, action, changes)}

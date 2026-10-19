@@ -203,6 +203,24 @@ it('hides execution durations in compact view even when timing data exists', () 
   expect(screen.queryByLabelText(/elapsed time/)).toBeNull();
 });
 
+it('ends a finished task as completed instead of another planner step', () => {
+  render(
+    <ExecutionTimeline
+      status="completed"
+      steps={[
+        { id: 'click', label: 'Click “Pull requests”', status: 'completed' },
+        { id: 'plan-1', label: 'Chose the next step', status: 'completed' },
+        { id: 'plan-2', label: 'Choosing the next step', status: 'active' },
+        { id: 'final', label: 'Task completed', status: 'completed', detail: 'Pull requests are open.' },
+      ]}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: /Task completed/i }));
+  expect(screen.getByText('Click “Pull requests”')).toBeTruthy();
+  expect(screen.queryByText('Choosing the next step')).toBeNull();
+  expect(screen.queryByText('Chose the next step')).toBeNull();
+});
+
 it('does not invent elapsed time for interrupted legacy progress without timestamps', () => {
   render(
     <ExecutionTimeline

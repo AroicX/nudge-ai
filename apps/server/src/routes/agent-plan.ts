@@ -4,6 +4,7 @@ import {
   ScopeRequestSchema,
   ScopeResponseSchema,
 } from '@nudge/contracts';
+import { isValidTimeZone } from '@nudge/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import type { z } from 'zod';
 
@@ -112,7 +113,17 @@ export function registerAgentPlanRoutes(
                 options.referenceContext?.(
                   [input.data.goal, input.data.authorization.instruction, ...input.data.memory.constraints.map((item) => item.text)].join('\n'),
                 ) ?? '',
-            currentTime: `${new Date().toISOString()} (local timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone})`,
+            // Prefer the user's browser timezone; fall back to this computer's.
+            ...(() => {
+              const timeZone =
+                input.data.timeZone && isValidTimeZone(input.data.timeZone)
+                  ? input.data.timeZone
+                  : Intl.DateTimeFormat().resolvedOptions().timeZone;
+              return {
+                timeZone,
+                currentTime: `${new Date().toISOString()} (user timezone: ${timeZone}; local time ${new Intl.DateTimeFormat('en-GB', { timeZone, dateStyle: 'full', timeStyle: 'short' }).format(new Date())})`,
+              };
+            })(),
             },
             signal,
           ),

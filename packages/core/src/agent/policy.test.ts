@@ -70,6 +70,11 @@ describe('evaluateToolCall', () => {
     ).toBe('block');
   });
 
+  it('types into an ordinary field without a separate fill approval', () => {
+    const type = (id: string): ToolCall => ({ tool: 'type_text', tabId: 1, elementId: `doc_1:${id}`, text: 'Asake', mode: 'replace' });
+    expect(evaluateToolCall(ctx(), type('1'))).toEqual({ decision: 'allow' });
+  });
+
   it('blocks typing into password and card fields', () => {
     const type = (id: string): ToolCall => ({ tool: 'type_text', tabId: 1, elementId: `doc_1:${id}`, text: 'x', mode: 'replace' });
     const fillCtx = ctx({ authorization: auth(['read', 'navigate', 'fill']) });
@@ -149,5 +154,32 @@ describe('evaluateToolCall', () => {
       { tool: 'click_at', tabId: 1, screenshotId: 'shot', x: 10, y: 10 },
     );
     expect(outcome.decision).toBe('block');
+  });
+});
+
+describe('submission approval for save/schedule and multi-step forms', () => {
+  it('classifies event Save as a submission and step navigation as navigation', async () => {
+    const { classifyRisk } = await import('./risk');
+    const click = { tool: 'click', tabId: 1, elementId: 'doc:1' } as const;
+    expect(classifyRisk({ kind: 'button', name: 'Save' }, click).category).toBe('submit_form');
+    expect(classifyRisk({ kind: 'button', name: 'Save and continue' }, click).category).toBe('navigate');
+    expect(classifyRisk({ kind: 'button', name: 'Next' }, click).category).toBe('navigate');
+    expect(classifyRisk({ kind: 'button', name: 'Send invitations' }, click).category).toBe('send_message');
+  });
+
+  it('never grants submission when the user said not to submit', async () => {
+    const { sanitizeAuthorization } = await import('./authorization');
+    const proposal = { origins: [], categories: ['fill', 'submit_form'] as const, destinations: [], exclusions: [], limits: {} };
+    const fillOnly = sanitizeAuthorization({ ...proposal, categories: [...proposal.categories] }, "Fill in this application with my CV but don't submit it", 't');
+    expect(fillOnly.categories).not.toContain('submit_form');
+    const schedule = sanitizeAuthorization({ ...proposal, categories: [...proposal.categories] }, 'Schedule a meeting tomorrow at 9am called Sync', 't');
+    expect(schedule.categories).toContain('submit_form');
+    const noInvites = sanitizeAuthorization(
+      { ...proposal, categories: ['fill', 'submit_form', 'send_message'] },
+      'Schedule a sync tomorrow at 9am without sending invites',
+      't',
+    );
+    expect(noInvites.categories).toContain('submit_form');
+    expect(noInvites.categories).not.toContain('send_message');
   });
 });

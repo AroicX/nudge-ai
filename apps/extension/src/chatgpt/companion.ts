@@ -1,3 +1,4 @@
+import type { PlanMessageContent } from './text-route';
 import { PlannerResponseSchema, ScopeResponseSchema, type PlannerRequest, type ScopeRequest } from '@nudge/contracts';
 export const CHATGPT_HOST = 'com.nudge.chatgpt';
 
@@ -91,7 +92,7 @@ export class ChatGptCompanion {
     accountId: string;
     model: string;
     instructions: string;
-    messages: Array<{ role: 'user' | 'assistant' | 'developer'; content: string }>;
+    messages: Array<{ role: 'user' | 'assistant' | 'developer'; content: PlanMessageContent }>;
     onDelta(text: string): void;
     signal: AbortSignal;
   }) {

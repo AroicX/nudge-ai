@@ -51,6 +51,46 @@ function make(browser: FakeBrowser, planner: FakePlanner, extra: Partial<Control
 }
 
 describe('TaskController', () => {
+  it('moves across spreadsheet columns instead of retyping the same cell', async () => {
+    const browser = new FakeBrowser().addTab(1, {
+      url: 'https://docs.google.com/spreadsheets/d/abc/edit',
+      title: 'Untitled spreadsheet',
+      documentId: 'sheet',
+      elements: [
+        element('sheet', 1, 'input', 'A1', { value: 'A1' }),
+        element('sheet', 2, 'editable', 'Item', { value: '', contentEditable: true }),
+      ],
+      text: ['Untitled spreadsheet'],
+    });
+    browser.pages.get(1)!.onExecute = (call, page) => {
+      if (call.tool === 'type_text') {
+        const cell = page.elements.find((item) => item.id === call.elementId);
+        if (cell) {
+          cell.text = call.text ?? '';
+          cell.value = call.text ?? '';
+        }
+        page.text = ['Untitled spreadsheet', call.text ?? ''];
+      }
+    };
+    const planner = new FakePlanner([
+      {
+        toolCall: {
+          tool: 'type_text',
+          tabId: 1,
+          elementId: 'sheet:2',
+          text: 'Item 1',
+          mode: 'replace',
+        },
+      },
+      { toolCall: { tool: 'finish', summary: 'Filled the first cell.', evidence: ['Item 1'] } },
+    ]);
+    const { controller } = make(browser, planner);
+    await controller.instruct('Fill the sheet with Item 1 in column A and Status in column B', 'text', 1);
+    await controller.idle();
+    expect(planner.requests[0]?.notes.join('\n')).toMatch(/press_keys Tab to the next column/i);
+    expect(planner.requests[1]?.notes.join('\n')).toMatch(/do not type into the same cell|before typing again/i);
+  });
+
   it('uses saved documents when the user retries an application question', async () => {
     const browser = new FakeBrowser().addTab(1, jobsPage());
     const planner = new FakePlanner([
@@ -668,10 +708,12 @@ describe('TaskController', () => {
       startedAt: 1000,
       completedAt: 2000,
     });
-    expect(out.last()?.timeline.find((step) => step.id.endsWith(':plan_0'))).toMatchObject({
-      startedAt: 2000,
-      completedAt: 3500,
+    expect(out.last()?.timeline.some((step) => step.id.endsWith(':plan_0'))).toBe(false);
+    expect(out.last()?.timeline.find((step) => step.id.endsWith(':final'))).toMatchObject({
+      label: 'Task completed',
       status: 'completed',
+      completedAt: 3500,
+      detail: 'Jobs',
     });
   });
 
@@ -694,6 +736,15 @@ describe('TaskController', () => {
     await controller.idle();
     const final = out.last()!;
     expect(final.status).toBe('completed');
+    expect(final.timeline.map((step) => step.label)).not.toContain('Choosing the next step');
+    expect(final.timeline.map((step) => step.label)).not.toContain('Chose the next step');
+    expect(final.timeline.at(-1)).toMatchObject({
+      label: 'Task completed',
+      detail: 'Loaded more jobs.',
+    });
+    expect(final.timeline.some((step) => step.status === 'active')).toBe(false);
+    controller.control('stop');
+    expect(controller.snapshot().status).toBe('completed');
     expect(final.report!.verified.join(' ')).toMatch(/More jobs/);
     expect(final.sources).toEqual([
       expect.objectContaining({ tabId: 1, url: JOBS, title: 'Jobs', domain: 'jobs.test' }),
@@ -1316,19 +1367,15 @@ describe('repeated policy denials', () => {
       reason: 'Could not continue.',
     },
   };
-  it('stops after a second denied target even when the proposed query changes', async () => {
+  it('types into a text field without asking for permission first', async () => {
     const browser = new FakeBrowser().addTab(1, page());
-    const planner = new FakePlanner([type('phone'), type('black phone'), type('black iPhone')]);
+    const planner = new FakePlanner([type('Asake'), partial]);
     const { controller } = make(browser, planner);
-    await controller.instruct('Read the listings', 'text', 1);
+    await controller.instruct('Play Asake', 'text', 1);
     await controller.idle();
-    expect(planner.requests).toHaveLength(2);
-    expect(browser.executes()).toEqual([]);
-    expect(controller.snapshot()).toMatchObject({
-      status: 'waiting_for_user',
-      pendingQuestion: expect.stringContaining('stopped repeating'),
-    });
-    expect(planner.requests[1]?.lastResult?.detail).toContain('Blocked');
+    expect(browser.executes().map((item) => item.call.tool)).toEqual(['type_text']);
+    expect(controller.snapshot().pendingQuestion).toBeUndefined();
+    expect(controller.snapshot().status).toBe('partially_completed');
   });
   it('allows one failed proposal to recover by reporting the limitation', async () => {
     const browser = new FakeBrowser().addTab(1, page());
@@ -1338,7 +1385,7 @@ describe('repeated policy denials', () => {
     await controller.idle();
     expect(planner.requests).toHaveLength(2);
     expect(controller.snapshot().status).toBe('partially_completed');
-    expect(browser.executes()).toEqual([]);
+    expect(browser.executes().map((item) => item.call.tool)).toEqual(['type_text']);
   });
   it('allows a fresh attempt after the user changes the authorization context', async () => {
     const browser = new FakeBrowser().addTab(1, page());

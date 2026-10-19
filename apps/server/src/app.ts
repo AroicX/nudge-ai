@@ -10,6 +10,7 @@ import { createMemoryChatResponder } from './memory/chat';
 import { registerMemoryRoutes } from './routes/memory';
 import { registerMemoryChatRoute } from './routes/memory-chat';
 import { registerMemoryUploadRoute } from './routes/memory-upload';
+import { registerProfileRoutes } from './routes/profile';
 
 import { pairingGuard } from './auth/pairing';
 import { loadConfig } from './config';
@@ -175,6 +176,16 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       timeoutMs: options.requestTimeoutMs ?? 20_000,
     });
     registerMemoryUploadRoute(protectedRoutes, { authenticate, store: memory });
+    registerProfileRoutes(protectedRoutes, {
+      authenticate,
+      store: memory,
+      referenceContext: (query) =>
+        referenceContext(memory, query, {
+          includeChatHistory:
+            !isRoutineFormInstruction(query) ||
+            /\b(?:remember|recall|previous|earlier|last|discussed|conversation|chat)\b/i.test(query),
+        }),
+    });
     registerLocalVoiceRoutes(protectedRoutes, {
       authenticate,
       service:

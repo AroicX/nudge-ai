@@ -1,5 +1,7 @@
 # Continue with ChatGPT
 
+This path stays in the public alpha because it follows OpenAI’s published [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source) docs for open-source, locally hosted apps (checked 2026-10-19). It is a preview. It is not approval to ship the same connection in a paid or remotely hosted product. Those need OpenAI’s separate program. Nudge does not call ChatGPT’s `backend-api`, and it does not copy browser cookies.
+
 Nudge can send eligible full-screen text chats through a connected ChatGPT Plus or Pro plan. Browser tasks use the same connected plan through custom function tools executed by the extension. Realtime voice, dictation, and speech stay on the existing OpenAI API or local voice path.
 
 This uses the open-source, locally hosted Sign in with ChatGPT flow. It is not the commercial website client-ID program. A paid or remotely hosted product would need separate approval and is not enabled here.

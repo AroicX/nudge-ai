@@ -57,7 +57,18 @@ export default defineBackground(() => {
   const cdp = createCdpExecutor(browser.debugger as never, browser.permissions as never);
   const relay: { bridge?: ReturnType<typeof createPanelBridge> } = {};
   const companion = new ChatGptCompanion(() => browser.runtime.connectNative(CHATGPT_HOST), browser.runtime.id);
-  const planner = createPlanPlannerPort(createChromePlannerPort(server), companion, () => providerSelection);
+  const planner = createPlanPlannerPort(createChromePlannerPort(server), companion, () => providerSelection, (query, signal) =>
+    server.agentContext(query, signal),
+  );
+  let userTimeZone: string | undefined;
+  const loadTimeZone = async () => {
+    const stored = await browser.storage.local.get('userTimeZone');
+    userTimeZone = typeof stored.userTimeZone === 'string' && stored.userTimeZone ? stored.userTimeZone : undefined;
+  };
+  void loadTimeZone();
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && 'userTimeZone' in changes) void loadTimeZone();
+  });
   const controller = new TaskController({
     tabs,
     content,
@@ -75,6 +86,12 @@ export default defineBackground(() => {
     subscriptionText: () => subscriptionText,
     subscriptionTools: () => true,
     capabilities: () => ({ vision }),
+    profile: {
+      candidateProfile: (signal) => server.candidateProfile(signal),
+      searchCv: (query, signal) => server.searchCv(query, signal),
+      documentFile: (documentId, signal) => server.documentFile(documentId, signal),
+    },
+    timeZone: () => userTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
     nativeBrowser: (command, originTabId, signal) =>
       executeNativeBrowserCommand(command, originTabId, browser as unknown as BrowserApi, {
         signal,

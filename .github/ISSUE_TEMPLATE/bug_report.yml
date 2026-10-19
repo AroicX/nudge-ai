@@ -1,0 +1,73 @@
+name: Bug report
+description: A browser or setup failure with private data removed
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include API keys, cookies, passwords, one-time codes, full page dumps, or CVs.
+  - type: input
+    id: chrome
+    attributes:
+      label: Chrome version
+      placeholder: "131.0.6778.0"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 15.6"
+    validations:
+      required: true
+  - type: input
+    id: nudge
+    attributes:
+      label: Nudge version
+      description: Extension package version. This alpha is 0.1.0.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - OpenAI API
+        - Ollama
+        - ChatGPT plan
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Sanitized steps
+      description: Rewrite the instruction if it contained private details. Name the kind of page, not the account.
+      placeholder: |
+        1. Open the fixture site at http://127.0.0.1:4173
+        2. Ask Nudge to find the cheapest black option
+        3. The task stops on the first result
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Task status and any error text, with secrets removed.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Optional. Server terminal lines or panel status text after you remove keys, tokens, and personal content.
+    validations:
+      required: false

@@ -16,6 +16,8 @@ import {
   type PersistedTurn,
 } from '@nudge/contracts';
 import { declaredProfileFacts } from './profile-facts';
+import { buildCandidateProfile } from './candidate-profile';
+import type { CandidateProfile } from '@nudge/contracts';
 
 export function defaultMemoryPath(env = process.env): string {
   const directory =
@@ -60,6 +62,7 @@ export class MemoryStore {
       CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY, chatId TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE, role TEXT NOT NULL, text TEXT NOT NULL, createdAt TEXT NOT NULL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS messages_chat ON messages(chatId, createdAt);
       CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, filename TEXT NOT NULL, text TEXT NOT NULL, source TEXT NOT NULL, createdAt TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS document_meta(id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE, isDefault INTEGER NOT NULL DEFAULT 0, mime TEXT, bytes BLOB);
       CREATE TABLE IF NOT EXISTS facts(key TEXT PRIMARY KEY, value TEXT NOT NULL, source TEXT NOT NULL, updatedAt TEXT NOT NULL, messageId TEXT REFERENCES messages(id) ON DELETE CASCADE, documentId TEXT REFERENCES documents(id) ON DELETE CASCADE);
     `);
     const existing = this.db
@@ -320,7 +323,61 @@ export class MemoryStore {
       .all()
       .map((row) => MemoryDocumentSchema.parse(row));
   }
-  addDocument(input: { id?: string | undefined; filename: string; text: string }): MemoryDocument {
+  /** Per-document flags: default CV and whether the original file is stored for attaching. */
+  documentMeta(): Map<string, { isDefault: boolean; attachable: boolean }> {
+    return new Map(
+      this.db
+        .prepare('SELECT id,isDefault,bytes IS NOT NULL AS attachable FROM document_meta')
+        .all()
+        .map((row) => [
+          String(row.id),
+          { isDefault: Number(row.isDefault) === 1, attachable: Number(row.attachable) === 1 },
+        ]),
+    );
+  }
+  candidateProfile(): CandidateProfile {
+    const meta = this.documentMeta();
+    return buildCandidateProfile(
+      this.listDocuments().map((document) => ({
+        ...document,
+        isDefault: meta.get(document.id)?.isDefault ?? false,
+        attachable: meta.get(document.id)?.attachable ?? false,
+      })),
+      this.listFacts(),
+    );
+  }
+  setDefaultDocument(id: string | null) {
+    this.transaction(() => {
+      if (id && !this.db.prepare('SELECT id FROM documents WHERE id=?').get(id))
+        throw new MemoryError('Document not found.', 404);
+      this.db.prepare('UPDATE document_meta SET isDefault=0').run();
+      if (id)
+        this.db
+          .prepare(
+            'INSERT INTO document_meta(id,isDefault) VALUES(?,1) ON CONFLICT(id) DO UPDATE SET isDefault=1',
+          )
+          .run(id);
+    });
+  }
+  documentFile(id: string): { filename: string; mime: string; bytes: Buffer } | undefined {
+    const row = this.db
+      .prepare(
+        'SELECT d.filename AS filename, m.mime AS mime, m.bytes AS bytes FROM documents d JOIN document_meta m ON m.id=d.id WHERE d.id=? AND m.bytes IS NOT NULL',
+      )
+      .get(id);
+    if (!row) return undefined;
+    return {
+      filename: String(row.filename),
+      mime: String(row.mime ?? 'application/octet-stream'),
+      bytes: Buffer.from(row.bytes as Uint8Array),
+    };
+  }
+  addDocument(input: {
+    id?: string | undefined;
+    filename: string;
+    text: string;
+    file?: { mime: string; bytes: Buffer } | undefined;
+  }): MemoryDocument {
     const id = MemoryIdSchema.parse(input.id ?? randomUUID());
     const doc = MemoryDocumentSchema.parse({
       id,
@@ -341,6 +398,10 @@ export class MemoryStore {
       this.db
         .prepare('INSERT INTO documents VALUES(?,?,?,?,?)')
         .run(doc.id, doc.filename, doc.text, doc.source, doc.createdAt);
+      if (input.file)
+        this.db
+          .prepare('INSERT INTO document_meta(id,isDefault,mime,bytes) VALUES(?,0,?,?)')
+          .run(doc.id, input.file.mime, input.file.bytes);
       this.index('document', id, '', doc.filename, doc.text, doc.source, doc.createdAt);
       return doc;
     });

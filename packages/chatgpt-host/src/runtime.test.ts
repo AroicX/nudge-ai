@@ -510,6 +510,49 @@ describe('ChatGPT plan companion', () => {
     await expect(pending).rejects.toThrow('Stopped');
   });
 
+  it('answers an invalid step with an error on the same call_id, then a compact result', async () => {
+    const { keys } = await identityKey();
+    const env = harness();
+    const runtime = env.runtime(keys);
+    const state = runtime.ensureHost();
+    state.accounts.push({ id: 'a', label: 'Test', email: 'test@example.com', issuer: 'https://auth.openai.com', subject: 'test', clientId: 'oaiapp_test', hostId: state.hostId, scopes: SCOPE.split(' '), planUsage: true, tokens: { accessToken: 'plan-only', refreshToken: 'refresh', idToken: 'test', expiresAt: Date.now() + 3600000, savedAt: new Date().toISOString() } });
+    env.store.write(state);
+    const bodies: Array<{ input: Array<{ type?: string; call_id?: string; output: string }>; parallel_tool_calls?: boolean }> = [];
+    let argumentsJson = JSON.stringify({ requestId: 'r', toolCall: { tool: 'not_a_tool' } });
+    let callId = 'call_bad';
+    env.setResponses(async (init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return sse(['data: ' + JSON.stringify({ type: 'response.output_item.done', item: { type: 'function_call', namespace: 'nudge', name: 'emit_step', call_id: callId, arguments: argumentsJson } }), 'data: ' + JSON.stringify({ type: 'response.completed', response: { output: [] } })]);
+    });
+    const request = plannerRequest();
+    await expect(runtime.browserStep({ type: 'plan', accountId: 'a', model: 'gpt-test', request }, new AbortController().signal)).rejects.toThrow(/invalid step/);
+    argumentsJson = JSON.stringify({ requestId: 'r', toolCall: { tool: 'observe_tab', tabId: 4 } });
+    callId = 'call_good';
+    await runtime.browserStep({ type: 'plan', accountId: 'a', model: 'gpt-test', request }, new AbortController().signal);
+    const retry = bodies[1]!.input.find((item: { type?: string }) => item.type === 'function_call_output');
+    expect(retry).toMatchObject({ call_id: 'call_bad' });
+    expect(JSON.parse(retry!.output).error).toMatch(/not executed.*invalid step/);
+    expect(bodies[1]).toMatchObject({ parallel_tool_calls: false });
+    await runtime.browserStep({ type: 'plan', accountId: 'a', model: 'gpt-test', request: { ...request, lastResult: { tool: 'observe_tab', ok: true, detail: 'Observed.', verified: true } } }, new AbortController().signal);
+    const result = bodies[2]!.input.find((item: { type?: string }) => item.type === 'function_call_output');
+    expect(result).toMatchObject({ call_id: 'call_good' });
+    // Compact: the execution result only; the full observation travels once, in the new message.
+    expect(JSON.parse(result!.output)).toEqual({ result: { tool: 'observe_tab', ok: true, detail: 'Observed.', verified: true } });
+  });
+
+  it('accepts image content parts for plan chat and passes them through unchanged', async () => {
+    const { HostRequestSchema } = await import('./framing');
+    const { responsesBody } = await import('./inference');
+    const content = [
+      { type: 'input_text' as const, text: 'What is this?' },
+      { type: 'input_image' as const, image_url: 'data:image/png;base64,AAAA' },
+    ];
+    const parsed = HostRequestSchema.safeParse({ v: 1, extensionId: 'a'.repeat(32), id: '1', type: 'respond', accountId: 'a', model: 'm', instructions: 'x', messages: [{ role: 'user', content }] });
+    expect(parsed.success).toBe(true);
+    expect(HostRequestSchema.safeParse({ v: 1, extensionId: 'a'.repeat(32), id: '1', type: 'respond', accountId: 'a', model: 'm', instructions: 'x', messages: [{ role: 'user', content: [{ type: 'input_image', image_url: 'https://evil.test/x.png' }] }] }).success).toBe(false);
+    expect(JSON.parse(responsesBody({ model: 'm', instructions: 'x', messages: [{ role: 'user', content }] })).input[0].content).toEqual(content);
+  });
+
   it('accepts only the documented loopback callback path', async () => {
     const listener = await listenForCallback(2000);
     try {

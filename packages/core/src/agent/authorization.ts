@@ -5,8 +5,10 @@ const LEXICAL_GATES: Partial<Record<ActionCategory, RegExp>> = {
   delete_permanent:
     /\b(permanent(ly)?\s+(delete|remove|erase)|delete\s+(forever|permanently)|empty\s+(the\s+)?trash)\b/i,
   move_reversible: /\b(trash|archive|move|delete|remove|clean\s*up|label)\b/i,
-  send_message: /\b(send|reply|forward|post|email\s+(him|her|them|back)|message\s+\w+)\b/i,
-  submit_form: /\b(submit|apply|sign\s*(me\s+)?up|register|book|enroll|subscribe)\b/i,
+  send_message:
+    /\b(send|reply|forward|post|email\s+(him|her|them|back)|message\s+\w+|invite|invitations?)\b/i,
+  submit_form:
+    /\b(submit|apply|sign\s*(me\s+)?up|register|book|enroll|subscribe|schedule|save|create\s+(?:an?\s+|the\s+)?(?:event|meeting|appointment|invite)|add\s+.{0,80}\bto\s+(?:my\s+)?calendar|put\s+.{0,80}\b(?:on|in)\s+(?:my\s+)?calendar)\b/i,
   purchase: /\b(buy|purchase|order|checkout|check\s+out|pay)\b/i,
   transfer_code: /\b(code|otp|one[-\s]?time|verification|passcode)\b/i,
   auth_challenge: /$^/, // never granted by wording; always handed to the user
@@ -14,8 +16,17 @@ const LEXICAL_GATES: Partial<Record<ActionCategory, RegExp>> = {
 
 const ALWAYS: ActionCategory[] = ['read', 'navigate'];
 
+/** "Fill it in but don't submit" must never grant submission. */
+const NEGATED: Partial<Record<ActionCategory, RegExp>> = {
+  submit_form:
+    /\b(?:do not|don't|don’t|never|without|not|no)\s+(?:\w+\s+){0,2}(?:submit|submitting|apply|applying|save|saving)\b|\b(?:only|just)\s+(?:fill|draft|prepare)\b|\bleave\s+(?:it\s+)?(?:as\s+a\s+)?draft\b/i,
+  send_message:
+    /\b(?:do not|don't|don’t|never|without|not|no)\s+(?:\w+\s+){0,2}(?:send|sending|invite|inviting|post|posting)\b/i,
+};
+
 function allowedByWords(category: ActionCategory, text: string): boolean {
   const gate = LEXICAL_GATES[category];
+  if (NEGATED[category]?.test(text)) return false;
   return gate ? gate.test(text) : true;
 }
 

@@ -19,7 +19,27 @@ export async function documentText(filename: string, bytes: Buffer): Promise<str
       const pages: string[] = [];
       for (let page = 1; page <= pdf.numPages; page++) {
         const content = await (await pdf.getPage(page)).getTextContent();
-        pages.push(content.items.flatMap((item) => ('str' in item ? [item.str] : [])).join(' '));
+        // Keep line structure (hasEOL / baseline changes) so names, contact lines and
+        // section headings stay separable for profile extraction.
+        let line = '';
+        const lines: string[] = [];
+        let lastY: number | undefined;
+        for (const item of content.items) {
+          if (!('str' in item)) continue;
+          const y = Array.isArray(item.transform) ? Number(item.transform[5]) : undefined;
+          if (lastY !== undefined && y !== undefined && Math.abs(y - lastY) > 2 && line.trim()) {
+            lines.push(line.trim());
+            line = '';
+          }
+          line += line && item.str && !line.endsWith(' ') && !item.str.startsWith(' ') ? ` ${item.str}` : item.str;
+          if (y !== undefined) lastY = y;
+          if (item.hasEOL && line.trim()) {
+            lines.push(line.trim());
+            line = '';
+          }
+        }
+        if (line.trim()) lines.push(line.trim());
+        pages.push(lines.join('\n'));
       }
       text = pages.join('\n\n');
     } finally {

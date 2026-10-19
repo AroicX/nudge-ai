@@ -21,7 +21,12 @@ export function registerMemoryUploadRoute(
           return reply.code(413).send({ error: 'Choose a document smaller than 5 MB.' });
         const filename = file.filename.split(/[\\/]/).at(-1)!.slice(0, 250);
         const text = await documentText(filename, bytes);
-        return options.store.addDocument({ filename, text });
+        // Keep the original file so it can be attached to application forms later.
+        return options.store.addDocument({
+          filename,
+          text,
+          file: { mime: file.mimetype || 'application/octet-stream', bytes },
+        });
       } catch (error) {
         return reply.code(400).send({
           error: error instanceof Error ? error.message : 'Could not read this document.',

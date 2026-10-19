@@ -4,9 +4,14 @@ export function accessibleName(element: Element, document: Document): string {
 
   const labelledBy = element.getAttribute('aria-labelledby');
   if (labelledBy) {
+    // Resolve ids in the element's own tree (shadow root or frame document).
+    const root = element.getRootNode() as Document | ShadowRoot;
+    const lookup = (id: string) =>
+      (typeof root.getElementById === 'function' ? root.getElementById(id) : null) ??
+      document.getElementById(id);
     const label = labelledBy
       .split(/\s+/)
-      .map((id) => document.getElementById(id)?.textContent?.trim())
+      .map((id) => lookup(id)?.textContent?.trim())
       .filter(Boolean)
       .join(' ');
     if (label) return label;

@@ -161,6 +161,40 @@ export const CapabilitiesSchema = z
   .object({ vision: z.boolean(), trustedInput: z.boolean() })
   .strict();
 
+export const ToolErrorCategorySchema = z.enum([
+  'stale_element',
+  'not_found',
+  'not_visible',
+  'disabled',
+  'value_rejected',
+  'validation_error',
+  'timeout',
+  'blocked',
+  'missing_information',
+  'retrieval_failed',
+  'no_progress',
+  'unsupported',
+  'unknown',
+]);
+
+/**
+ * Structured tool result returned to the planner with the next request.
+ * `ok` means the tool executed; `verified` means the intended outcome was observed.
+ */
+export const ToolResultSchema = z
+  .object({
+    tool: z.string().max(60),
+    ok: z.boolean(),
+    detail: z.string().max(2_000),
+    verified: z.boolean().optional(),
+    errorCategory: ToolErrorCategorySchema.optional(),
+    pageChanged: z.boolean().optional(),
+    recoverable: z.boolean().optional(),
+    /** JSON payload for data tools (candidate profile, CV search, event lookup). */
+    data: z.string().max(12_000).optional(),
+  })
+  .strict();
+
 export const PlannerRequestSchema = z
   .object({
     requestId: z.string().min(1).max(120),
@@ -172,14 +206,13 @@ export const PlannerRequestSchema = z
     authorization: AuthorizationRecordSchema,
     observation: ObservationSchema.nullable(),
     tabs: z.array(TabReferenceSchema).max(100),
-    lastResult: z
-      .object({ tool: z.string().max(60), ok: z.boolean(), detail: z.string().max(2_000) })
-      .strict()
-      .optional(),
+    lastResult: ToolResultSchema.optional(),
     capabilities: CapabilitiesSchema,
     notes: z.array(z.string().min(1).max(1_000)).max(20),
-    referenceContext: z.string().max(4000).optional(),
+    referenceContext: z.string().max(8_000).optional(),
     currentTime: z.string().max(150).optional(),
+    /** IANA timezone of the user (browser/settings), used to resolve relative dates. */
+    timeZone: z.string().max(80).optional(),
   })
   .strict();
 
@@ -227,6 +260,8 @@ export type FinalReport = z.infer<typeof FinalReportSchema>;
 export type Expectation = z.infer<typeof ExpectationSchema>;
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 export type PlannerRequest = z.infer<typeof PlannerRequestSchema>;
+export type ToolResult = z.infer<typeof ToolResultSchema>;
+export type ToolErrorCategory = z.infer<typeof ToolErrorCategorySchema>;
 export type PlannerResponse = z.infer<typeof PlannerResponseSchema>;
 export type ScopeRequest = z.infer<typeof ScopeRequestSchema>;
 export type ScopeResponse = z.infer<typeof ScopeResponseSchema>;

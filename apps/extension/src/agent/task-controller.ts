@@ -1,6 +1,8 @@
 import {
   MUTATING_TOOLS,
   VISUAL_TOOLS,
+  type CandidateProfile,
+  type ToolResult,
   recordFieldsToObject,
   type AuthorizationRecord,
   type ContentResult,
@@ -23,6 +25,15 @@ import {
 import {
   ActionScheduler,
   DEFAULT_BUDGET,
+  ProgressMonitor,
+  classifyRisk,
+  eventFingerprint,
+  googleCalendarDayUrl,
+  googleCalendarTemplateUrl,
+  parseClock,
+  resolveDate,
+  resolveEventTiming,
+  type EventTiming,
   directDestination,
   RecordStore,
   addConstraint,
@@ -59,6 +70,7 @@ import type {
   CheckpointPort,
   ContentPort,
   PlannerPort,
+  ProfilePort,
   ScreenshotPort,
   TabsPort,
 } from './ports';
@@ -92,6 +104,10 @@ export interface ControllerDeps {
   subscriptionText?: () => boolean;
   subscriptionTools?: () => boolean;
   capabilities: () => { vision: boolean };
+  /** Saved candidate profile and documents (local server). */
+  profile?: ProfilePort | undefined;
+  /** User's IANA timezone (settings or browser); used for relative dates. */
+  timeZone?: () => string;
   id?: () => string;
   limits?: { maxCalls: number; maxMs: number };
   nativeBrowser?: (
@@ -145,7 +161,27 @@ interface Task {
   capabilityLost: boolean;
   stepCount: number;
   unsubscribe: Array<() => void>;
+  progress: ProgressMonitor;
+  /** Consecutive attempts the controller refused because they had already made no progress. */
+  refusedRepeats: number;
+  calendar?: CalendarDraftState | undefined;
 }
+
+interface CalendarDraftState {
+  title: string;
+  timing: Extract<EventTiming, { ok: true }>;
+  attendees: string[];
+  fingerprint: string;
+  saveAttempts: number;
+  /** A save was attempted and its outcome is not yet confirmed by a lookup. */
+  needsLookup: boolean;
+  verified: boolean;
+}
+
+const GENERIC_EVENT_TITLES = new Set(['meeting', 'a meeting', 'event', 'new event', 'appointment', 'call', 'sync', 'untitled', '(no title)', 'calendar event']);
+const TIME_IN_TEXT = /\b(?:\d{1,2}(?::\d{2})?\s?(?:am|pm|a\.m\.|p\.m\.)|\d{1,2}:\d{2}|noon|midday|midnight)\b/gi;
+const DURATION_IN_TEXT =
+  /\b(?:for\s+)?(?:an?\s+|\d+(?:\.\d+)?\s*|half\s+an?\s+|one\s+|two\s+|three\s+)(?:hours?|hrs?|minutes?|mins?)\b|\b(?:until|till|to|-|–)\s*\d{1,2}(?::\d{2})?\s?(?:am|pm)?\b/i;
 
 const URL_IN_TEXT = /https?:\/\/[^\s"'<>]+/g;
 
@@ -456,6 +492,8 @@ export class TaskController {
     );
     task.authorization = extendAuthorization(task.authorization, text);
     task.notes.push(`User answered: ${text}`);
+    task.progress.reset();
+    task.refusedRepeats = 0;
     task.snapshotFresh = false;
     if (task.boundTabClosed) {
       const match = task.tabs.find((tab) => text.toLowerCase().includes(tab.title.toLowerCase()));
@@ -578,6 +616,8 @@ export class TaskController {
       capabilityLost: false,
       stepCount: 0,
       unsubscribe: [],
+      progress: new ProgressMonitor(),
+      refusedRepeats: 0,
     };
   }
 
@@ -839,6 +879,8 @@ export class TaskController {
     // Cancellation can replace a pending success/failure, never the other way around.
     const finishing = { outcome };
     task.finishing = finishing;
+    // A finished run must not plan another step or keep the stop control armed.
+    this.#again = false;
     this.deps.otp.cancelAll();
     await this.deps.cdp?.detach().catch(() => undefined);
     if (
@@ -868,7 +910,19 @@ export class TaskController {
     }[outcome] as TaskEvent;
     task.status = transition(task.status, event);
     task.completedAt = this.deps.clock();
-    this.#timeline(task, 'final', summary, outcome === 'failed' ? 'error' : 'completed');
+    const finishedAt = task.completedAt;
+    task.timeline = task.timeline.map((step) =>
+      step.status === 'active'
+        ? { ...step, status: 'completed' as const, completedAt: step.completedAt ?? finishedAt }
+        : step,
+    );
+    this.#timeline(
+      task,
+      'final',
+      outcome === 'completed' ? 'Task completed' : summary,
+      outcome === 'failed' ? 'error' : 'completed',
+      outcome === 'completed' ? summary : undefined,
+    );
     this.#teardown(task);
     await this.deps.checkpoints.clear().catch(() => undefined);
     this.deps.emit({ type: 'milestone', text: summary.slice(0, 1_000) });
@@ -937,8 +991,6 @@ export class TaskController {
     let response: PlannerResponse;
     const abort = new AbortController();
     this.#planAbort = abort;
-    this.#timeline(task, `plan_${task.stepCount}`, 'Choosing the next step', 'active');
-    this.#broadcast();
     try {
       response = await this.deps.planner.plan(request, abort.signal, this.#providerOverride(task));
     } catch (error) {
@@ -946,16 +998,7 @@ export class TaskController {
       if (this.#offerFallback(task, error)) return;
       throw error;
     }
-    if (!this.#scheduler.isCurrent(ticket) || task.status !== 'running') {
-      this.#timeline(
-        task,
-        `plan_${task.stepCount}`,
-        'Discarded a step planned before your change',
-        'completed',
-      );
-      return;
-    }
-    this.#timeline(task, `plan_${task.stepCount}`, 'Chose the next step', 'completed');
+    if (!this.#scheduler.isCurrent(ticket) || task.status !== 'running') return;
     task.stepCount += 1;
     if (response.planUpdate) {
       task.memory = applyPlanUpdate(task.memory, response.planUpdate);
@@ -1051,6 +1094,8 @@ export class TaskController {
   #plannerRequest(task: Task, observation: Observation | null): PlannerRequest {
     const records = task.records.list();
     const notes = [...task.notes];
+    const sheet = spreadsheetCue(observation?.snapshot);
+    if (sheet) notes.push(sheet);
     if (records.length) {
       notes.push(
         `${records.length} records collected so far (${task.records.unsaved().length} not yet written to a destination). Latest: ${records
@@ -1075,7 +1120,31 @@ export class TaskController {
         trustedInput: this.#capability === 'dom_plus_trusted_input',
       },
       notes: notes.map((note) => note.slice(0, 1_000)).slice(-20),
+      ...this.#timeContext(),
     };
+  }
+
+  #timeZone(): string {
+    const zone = this.deps.timeZone?.() || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: zone });
+      return zone;
+    } catch {
+      return 'UTC';
+    }
+  }
+
+  /** Every provider gets the real current time and the user's timezone, not the server's. */
+  #timeContext(): { currentTime: string; timeZone: string } {
+    const timeZone = this.#timeZone();
+    const now = new Date(this.deps.clock());
+    const local = new Intl.DateTimeFormat('en-GB', { timeZone, dateStyle: 'full', timeStyle: 'short' }).format(now);
+    return { timeZone, currentTime: `${now.toISOString()} (user timezone: ${timeZone}; local time ${local})`.slice(0, 150) };
+  }
+
+  /** The user's own words for this task: instruction, corrections and answers. */
+  #userText(task: Task): string {
+    return [task.instruction, ...task.memory.constraints.map((item) => item.text)].join('\n');
   }
 
   // ───────────────────────── dispatch ─────────────────────────
@@ -1119,6 +1188,20 @@ export class TaskController {
         task.lastResult = { tool: call.tool, ok: result.ok, detail: detail.slice(0, 2_000) };
         return;
       }
+      case 'get_candidate_profile':
+      case 'list_documents':
+      case 'search_cv':
+        await this.#profileTool(task, call);
+        return;
+      case 'attach_document':
+        await this.#attachDocument(task, call, response, label, stepId);
+        return;
+      case 'calendar_open_event_editor':
+        await this.#openCalendarEditor(task, call, stepId);
+        return;
+      case 'calendar_find_event':
+        await this.#findCalendarEvent(task, call, stepId);
+        return;
       case 'ask_user':
         this.#askUser(task, call.question);
         return;
@@ -1251,6 +1334,24 @@ export class TaskController {
         const completionVerified = navigationTarget
           ? verifiedNavigation || atRequestedDestination
           : verifiedAction || groundedEvidence.length > 0;
+        if (task.calendar && task.calendar.saveAttempts > 0 && !task.calendar.verified) {
+          task.rejectedFinishes += 1;
+          task.lastResult = {
+            tool: 'finish',
+            ok: false,
+            verified: false,
+            errorCategory: 'missing_information',
+            recoverable: true,
+            detail:
+              'The event was not confirmed to exist. Call calendar_find_event for the intended title and date before finishing.',
+          };
+          if (task.rejectedFinishes >= 3)
+            await this.#finishTask(
+              'partially_completed',
+              `I clicked Save for “${task.calendar.title}” but could not confirm the event exists in your calendar. Please check ${task.calendar.timing.label}.`,
+            );
+          return;
+        }
         if (!pending && !inaccessible && !completionVerified) {
           task.rejectedFinishes += 1;
           task.lastResult = {
@@ -1405,7 +1506,7 @@ export class TaskController {
         now: this.deps.clock(),
         riskLabel: response.riskLabel,
         confirmation: task.confirmation,
-        currentFingerprint: this.#currentFingerprint(task),
+        currentFingerprint: this.#currentFingerprint(task, call),
         generation: this.#scheduler.generation,
         bulkCount: Math.max(1, selection(snapshot).length),
         visualTarget,
@@ -1414,13 +1515,34 @@ export class TaskController {
     );
   }
 
-  #currentFingerprint(task: Task): string | undefined {
+  #currentFingerprint(task: Task, call?: ToolCall): string | undefined {
+    // A calendar save is bound to the intended event, not to checkboxes in the editor.
+    if (call && task.calendar && this.#isCalendarSave(task, call))
+      return targetFingerprint([`calendar:${task.calendar.fingerprint}`]);
     const selected = selection(task.snapshot);
     if (selected.length) return targetFingerprint(selected);
     return task.confirmation?.targetFingerprint;
   }
 
   #handlePolicy(task: Task, call: ToolCall, policy: PolicyOutcome, label: string): void {
+    if (policy.decision === 'confirm' && task.calendar && this.#isCalendarSave(task, call)) {
+      const draft = task.calendar;
+      this.#preview(
+        task,
+        {
+          operation: `Save calendar event “${draft.title}”`.slice(0, 200),
+          location: 'Google Calendar',
+          criteria: `${draft.timing.label}${draft.attendees.length ? `; guests: ${draft.attendees.join(', ')}` : '; no guests'}`.slice(0, 1_000),
+          count: 1,
+          samples: [draft.timing.label.slice(0, 300), ...draft.attendees.slice(0, 4)],
+          reversible: true,
+          permanent: false,
+        },
+        undefined,
+        targetFingerprint([`calendar:${draft.fingerprint}`]),
+      );
+      return;
+    }
     if (policy.decision === 'confirm') {
       const selected = selection(task.snapshot);
       const target =
@@ -1516,6 +1638,7 @@ export class TaskController {
     task: Task,
     proposal: Omit<OperationPreview, 'previewId' | 'targetFingerprint'>,
     snapshot?: PageSnapshot,
+    fingerprint?: string,
   ): void {
     const selected = selection(snapshot);
     const preview: OperationPreview = {
@@ -1523,9 +1646,11 @@ export class TaskController {
       previewId: `preview_${crypto.randomUUID()}`,
       count: selected.length || proposal.count,
       samples: (selected.length ? selected : proposal.samples).slice(0, 5),
-      targetFingerprint: selected.length
-        ? targetFingerprint(selected)
-        : targetFingerprint([...proposal.samples, `count:${proposal.count}`]),
+      targetFingerprint:
+        fingerprint ??
+        (selected.length
+          ? targetFingerprint(selected)
+          : targetFingerprint([...proposal.samples, `count:${proposal.count}`])),
     };
     task.pendingPreview = preview;
     task.lastPreview = preview;
@@ -1556,6 +1681,369 @@ export class TaskController {
     this.#askUser(task, question);
   }
 
+  // ───────────────────────── candidate profile ─────────────────────────
+
+  #retrievalFailure(tool: string, error: unknown): ToolResult {
+    const reason = error instanceof Error ? error.message : 'unknown error';
+    return {
+      tool,
+      ok: false,
+      verified: false,
+      errorCategory: 'retrieval_failed',
+      recoverable: true,
+      detail: `Could not read the saved profile/documents: ${reason}`.slice(0, 1_500) +
+        ' This is a retrieval failure, not missing information. Tell the user, suggest checking that the Nudge server is running, and offer to continue with details they type.',
+    };
+  }
+
+  async #loadProfile(_task: Task): Promise<CandidateProfile> {
+    if (!this.deps.profile) throw new Error('Profile access is not connected in this build');
+    const abort = new AbortController();
+    this.#planAbort = abort;
+    return this.deps.profile.candidateProfile(abort.signal);
+  }
+
+  async #profileTool(
+    task: Task,
+    call: Extract<ToolCall, { tool: 'get_candidate_profile' | 'list_documents' | 'search_cv' }>,
+  ): Promise<void> {
+    try {
+      if (call.tool === 'search_cv') {
+        if (!this.deps.profile) throw new Error('Profile access is not connected in this build');
+        const results = await this.deps.profile.searchCv(call.query);
+        task.lastResult = {
+          tool: call.tool,
+          ok: true,
+          verified: true,
+          detail: results.length
+            ? `${results.length} CV excerpts matched “${call.query.slice(0, 100)}”. Use only what they state.`
+            : `No CV text matched “${call.query.slice(0, 100)}”. Treat that detail as missing; do not invent it.`,
+          data: JSON.stringify(results).slice(0, 12_000),
+        };
+        return;
+      }
+      const profile = await this.#loadProfile(task);
+      const data =
+        call.tool === 'list_documents'
+          ? { selectedDocumentId: profile.selectedDocumentId, selection: profile.selection, documents: profile.documents, notes: profile.notes }
+          : profile;
+      let json = JSON.stringify(data);
+      if (json.length > 12_000) {
+        // Keep every field and source; trim long lists first.
+        json = JSON.stringify({ ...profile, employment: profile.employment.slice(0, 6), education: profile.education.slice(0, 4), skills: profile.skills.slice(0, 30) }).slice(0, 12_000);
+      }
+      const found = Object.keys(profile.fields);
+      task.lastResult = {
+        tool: call.tool,
+        ok: true,
+        verified: true,
+        detail:
+          call.tool === 'list_documents'
+            ? `${profile.documents.length} saved documents; selection: ${profile.selection}.`
+            : profile.status === 'no_documents'
+              ? 'No CV or profile details are saved. Ask the user for the required details, or to upload a CV in Account → Documents.'
+              : `Profile ${profile.status}: ${found.length} fields with sources (${found.join(', ')}). Missing: ${profile.missing.join(', ') || 'none'}. Conflicts must be asked about; askUser topics are never inferred.`,
+        data: json,
+      };
+      task.memory = appendStep(task.memory, {
+        tool: call.tool,
+        summary: `Read saved profile (${profile.status})`,
+        ok: true,
+      });
+    } catch (error) {
+      task.lastResult = this.#retrievalFailure(call.tool, error);
+      task.memory = addIssue(task.memory, 'Saved profile could not be read.');
+    }
+  }
+
+  async #attachDocument(
+    task: Task,
+    call: Extract<ToolCall, { tool: 'attach_document' }>,
+    response: PlannerResponse,
+    label: string,
+    stepId: string,
+  ): Promise<void> {
+    const policy = this.#policy(task, call, response);
+    if (policy.decision !== 'allow') return this.#handlePolicy(task, call, policy, label);
+    let documentId = call.documentId;
+    let filename: string | undefined;
+    try {
+      const profile = await this.#loadProfile(task);
+      if (!documentId) {
+        const cvs = profile.documents.filter((document) => document.looksLikeCv);
+        if (profile.selection === 'most_recent_cv' && cvs.length > 1) {
+          // The choice of file materially affects the application and no preference is saved.
+          this.#askUser(
+            task,
+            `Which CV should I attach: ${cvs.map((document) => `“${document.filename}”`).join(' or ')}? You can also mark one as default in Account → Documents.`,
+          );
+          return;
+        }
+        documentId = profile.selectedDocumentId;
+      }
+      const document = profile.documents.find((item) => item.id === documentId);
+      if (!documentId || !document) {
+        task.lastResult = { tool: call.tool, ok: false, verified: false, errorCategory: 'missing_information', recoverable: true, detail: 'No saved CV is available to attach. Ask the user to upload one in Account → Documents.' };
+        return;
+      }
+      if (!document.attachable) {
+        task.lastResult = { tool: call.tool, ok: false, verified: false, errorCategory: 'missing_information', recoverable: true, detail: `“${document.filename}” was saved as text only, so it cannot be attached. Ask the user to re-upload the file in Account → Documents, or to attach it themselves.` };
+        return;
+      }
+      filename = document.filename;
+    } catch (error) {
+      task.lastResult = this.#retrievalFailure(call.tool, error);
+      return;
+    }
+    let file: { filename: string; mime: string; base64: string };
+    try {
+      file = await this.deps.profile!.documentFile(documentId);
+    } catch (error) {
+      task.lastResult = this.#retrievalFailure(call.tool, error);
+      return;
+    }
+    const fingerprint = fingerprintOf(call);
+    this.#timeline(task, stepId, `Attaching ${filename}`, 'active');
+    await this.#checkpoint(task, { tool: call.tool, fingerprint });
+    const outcome = await this.#scheduler.run({ fingerprint }, () =>
+      this.deps.content.send(task.boundTabId, {
+        type: 'attach_file',
+        elementId: call.elementId,
+        documentId: task.snapshot?.documentId ?? '',
+        generation: this.#scheduler.generation,
+        file: { name: file.filename, mime: file.mime, base64: file.base64 },
+      }),
+    );
+    if (outcome.status !== 'done') {
+      task.memory = addIssue(task.memory, `Verify before continuing: attaching ${filename} may or may not have happened.`);
+      return;
+    }
+    const result = outcome.value;
+    const after = await this.#readPage(task.boundTabId);
+    if (after) {
+      this.#noteSnapshot(task, after);
+      task.snapshotFresh = true;
+    }
+    const shown = after?.elements.some((element) => element.files?.includes(file.filename)) || after?.text.some((text) => text.includes(file.filename));
+    task.lastResult = {
+      tool: call.tool,
+      ok: result.ok,
+      verified: Boolean(result.ok && shown),
+      detail: `${result.detail}${result.ok && !shown ? ' The page does not show the file name yet; check the upload field.' : ''}${result.validation?.length ? ` Validation: ${result.validation.join(' ')}` : ''}`.slice(0, 2_000),
+      ...(result.errorCategory ? { errorCategory: result.errorCategory } : {}),
+      recoverable: !result.ok,
+      pageChanged: Boolean(after && task.snapshot && result.changed),
+    };
+    task.memory = appendStep(task.memory, {
+      tool: call.tool,
+      summary: result.ok ? `Attached ${filename}` : `Could not attach ${filename}: ${result.detail}`.slice(0, 1_000),
+      ok: result.ok,
+      ...(result.ok && shown ? { evidence: `Upload field shows ${file.filename}` } : {}),
+    });
+    this.#timeline(task, stepId, result.ok ? `Attached ${filename}` : `Could not attach ${filename}`, result.ok ? 'completed' : 'error', result.ok ? undefined : result.detail);
+  }
+
+  // ───────────────────────── calendar ─────────────────────────
+
+  /** Values the user did not give are missing, even when the model proposes them. */
+  #calendarMissing(task: Task, call: Extract<ToolCall, { tool: 'calendar_open_event_editor' }>): string[] {
+    const text = this.#userText(task);
+    const lower = text.toLowerCase();
+    const missing: string[] = [];
+    const title = call.title.trim().toLowerCase().replace(/\s+/g, ' ');
+    const words = title.split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 2);
+    const titleGrounded = lower.includes(title) || (words.length > 0 && words.every((word) => lower.includes(word)));
+    if (GENERIC_EVENT_TITLES.has(title) || !titleGrounded) missing.push('title');
+    const now = this.deps.clock();
+    const zone = this.#timeZone();
+    const intended = resolveDate(call.date, now, zone);
+    const phrases = [
+      ...(lower.match(/\b(?:today|tomorrow|tmrw|day after tomorrow|in \d{1,3} days?)\b/g) ?? []),
+      ...(lower.match(/\b(?:this |next |on |coming )?(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/g) ?? []),
+      ...(lower.match(/\b\d{4}-\d{2}-\d{2}\b/g) ?? []),
+      ...(lower.match(/\b\d{1,2}(?:st|nd|rd|th)? (?:of )?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*(?: \d{4})?\b/g) ?? []),
+      ...(lower.match(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{1,2}(?:st|nd|rd|th)?(?: \d{4})?\b/g) ?? []),
+    ];
+    const dates = phrases.map((phrase) => resolveDate(phrase, now, zone)).filter(Boolean);
+    if (!intended || !dates.some((date) => date && date.y === intended.y && date.m === intended.m && date.d === intended.d)) missing.push('date');
+    const start = parseClock(call.startTime);
+    const times = (text.match(TIME_IN_TEXT) ?? []).map((value) => parseClock(value.replace(/\./g, '')));
+    if (!start || !times.some((time) => time && time.hour === start.hour && time.minute === start.minute)) missing.push('start time');
+    if ((call.durationMinutes !== undefined || call.endTime) && !DURATION_IN_TEXT.test(text)) missing.push('duration or end time');
+    if (call.durationMinutes === undefined && !call.endTime) missing.push('duration or end time');
+    return [...new Set(missing)];
+  }
+
+  async #openCalendarEditor(
+    task: Task,
+    call: Extract<ToolCall, { tool: 'calendar_open_event_editor' }>,
+    stepId: string,
+  ): Promise<void> {
+    if (call.tabId !== task.boundTabId) {
+      task.lastResult = { tool: call.tool, ok: false, errorCategory: 'blocked', detail: 'Switch to that tab before acting in it.' };
+      return;
+    }
+    const userText = this.#userText(task);
+    const origins = task.authorization.origins;
+    const allowed =
+      origins === 'browse_web' ||
+      origins.some((origin) => /calendar\.google\.com/.test(origin)) ||
+      /\b(?:calendar|meeting|event|schedule|appointment|invite)\b/i.test(userText);
+    if (!allowed) {
+      task.lastResult = { tool: call.tool, ok: false, errorCategory: 'blocked', detail: 'You did not ask for a calendar event.' };
+      return;
+    }
+    const uninvited = (call.attendees ?? []).filter((email) => !userText.toLowerCase().includes(email.toLowerCase()));
+    if (uninvited.length) {
+      task.lastResult = {
+        tool: call.tool,
+        ok: false,
+        errorCategory: 'blocked',
+        recoverable: true,
+        detail: `Attendees must come from the user's words. Not given: ${uninvited.join(', ')}. Remove them or ask the user.`,
+      };
+      return;
+    }
+    const missing = this.#calendarMissing(task, call);
+    const timing = resolveEventTiming(call, this.deps.clock(), this.#timeZone());
+    const allMissing = [...new Set([...missing, ...(timing.ok ? [] : timing.missing.map((item) => item.replace(/ \(.*\)$/, '')))])];
+    if (allMissing.length) {
+      const known = timing.ok ? ` (${timing.label})` : '';
+      this.#askUser(
+        task,
+        `To create the event${known} I still need: ${allMissing.join(', ')}. ${allMissing.includes('title') ? 'What should it be called? ' : ''}${allMissing.includes('start time') ? 'What time should it start? ' : ''}${allMissing.includes('duration or end time') ? 'How long should it last? ' : ''}${allMissing.includes('date') ? 'Which day? ' : ''}`.trim(),
+      );
+      return;
+    }
+    if (!timing.ok) return; // unreachable: missing would be non-empty
+    const fingerprint = eventFingerprint(call.title, timing.startLocal);
+    if (task.calendar?.fingerprint === fingerprint && task.calendar.verified) {
+      task.lastResult = { tool: call.tool, ok: false, errorCategory: 'blocked', detail: 'This event already exists in the calendar; do not create it again.' };
+      return;
+    }
+    if (task.calendar?.fingerprint === fingerprint && task.calendar.needsLookup) {
+      task.lastResult = {
+        tool: call.tool,
+        ok: false,
+        errorCategory: 'blocked',
+        recoverable: true,
+        detail: 'A save for this event was already attempted. Call calendar_find_event first so no duplicate is created.',
+      };
+      return;
+    }
+    const url = googleCalendarTemplateUrl({ title: call.title.trim(), timing, attendees: call.attendees, location: call.location, details: call.details });
+    this.#timeline(task, stepId, `Opening Google Calendar's editor for “${call.title}”`, 'active');
+    const outcome = await this.#scheduler.run({ fingerprint: `calendar_editor:${fingerprint}` }, async () => {
+      await this.deps.tabs.navigate(task.boundTabId, url);
+      await this.deps.tabs.waitForComplete(task.boundTabId, 15_000).catch(() => undefined);
+      return true;
+    });
+    if (outcome.status !== 'done') return;
+    task.calendar = {
+      title: call.title.trim(),
+      timing,
+      attendees: call.attendees ?? [],
+      fingerprint,
+      saveAttempts: task.calendar?.fingerprint === fingerprint ? task.calendar.saveAttempts : 0,
+      needsLookup: false,
+      verified: false,
+    };
+    task.observedUrls.add(url);
+    let snapshot: PageSnapshot | undefined;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      snapshot = await this.#readPage(task.boundTabId);
+      if (snapshot && (/accounts\.google\.com/.test(snapshot.url) || snapshot.elements.some((element) => element.value?.trim() === call.title.trim())))
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    if (snapshot) {
+      this.#noteSnapshot(task, snapshot);
+      task.snapshotFresh = true;
+    }
+    if (snapshot && /accounts\.google\.com/.test(snapshot.url)) {
+      task.lastResult = { tool: call.tool, ok: false, errorCategory: 'blocked', detail: 'Google asks you to sign in.' };
+      this.#askUser(task, 'Google Calendar needs you to sign in. Sign in in this tab, then say continue — nothing has been created.');
+      return;
+    }
+    const titleShown = Boolean(snapshot?.elements.some((element) => element.value?.trim() === call.title.trim()));
+    const intended = { title: call.title.trim(), when: timing.label, start: timing.startLocal, end: timing.endLocal, timeZone: timing.timeZone, attendees: call.attendees ?? [], location: call.location ?? null };
+    task.lastResult = {
+      tool: call.tool,
+      ok: true,
+      verified: titleShown,
+      pageChanged: true,
+      detail: titleShown
+        ? `Calendar's event editor is open and shows the title. Check the date/time/timezone fields match ${timing.label}, then click Save (needs approval). Nothing is saved yet.`
+        : `Opened Calendar's event editor for ${timing.label}, but the title field was not observed yet; observe again or wait_for the editor.`,
+      data: JSON.stringify({ intended }),
+    };
+    task.memory = appendStep(task.memory, {
+      tool: call.tool,
+      summary: `Opened Calendar editor: ${call.title} — ${timing.label}`.slice(0, 1_000),
+      ok: true,
+      ...(titleShown ? { evidence: `Editor shows title “${call.title}”` } : {}),
+    });
+    this.#timeline(task, stepId, `Event editor open: ${call.title}, ${timing.label}`, 'completed');
+  }
+
+  async #findCalendarEvent(
+    task: Task,
+    call: Extract<ToolCall, { tool: 'calendar_find_event' }>,
+    stepId: string,
+  ): Promise<void> {
+    const date = resolveDate(call.date, this.deps.clock(), this.#timeZone());
+    if (!date) {
+      task.lastResult = { tool: call.tool, ok: false, errorCategory: 'missing_information', detail: `Could not resolve the date “${call.date}”.` };
+      return;
+    }
+    const startLocal = `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}T00:00`;
+    const url = googleCalendarDayUrl({ startLocal });
+    this.#timeline(task, stepId, `Checking ${call.date} for “${call.title}”`, 'active');
+    const outcome = await this.#scheduler.run({ fingerprint: `calendar_find:${call.title}:${startLocal}:${task.stepCount}` }, async () => {
+      await this.deps.tabs.navigate(call.tabId, url);
+      await this.deps.tabs.waitForComplete(call.tabId, 15_000).catch(() => undefined);
+      return true;
+    });
+    if (outcome.status !== 'done') return;
+    const needle = call.title.trim().toLowerCase();
+    let matches: string[] = [];
+    let snapshot: PageSnapshot | undefined;
+    for (let attempt = 0; attempt < 4 && !matches.length; attempt += 1) {
+      if (attempt) await new Promise((resolve) => setTimeout(resolve, 700));
+      snapshot = await this.#readPage(task.boundTabId);
+      if (!snapshot) continue;
+      matches = [...snapshot.text, ...snapshot.elements.flatMap((element) => [element.name ?? '', element.text ?? ''])]
+        .filter((value) => value.toLowerCase().includes(needle))
+        .map((value) => value.slice(0, 300));
+    }
+    if (snapshot) {
+      this.#noteSnapshot(task, snapshot);
+      task.snapshotFresh = true;
+    }
+    const found = matches.length > 0;
+    if (task.calendar && eventFingerprint(call.title, task.calendar.timing.startLocal).split('@')[0] === task.calendar.fingerprint.split('@')[0]) {
+      task.calendar.needsLookup = false;
+      task.calendar.verified = found;
+    }
+    task.lastResult = {
+      tool: call.tool,
+      ok: true,
+      verified: found,
+      pageChanged: true,
+      detail: found
+        ? `Found “${call.title}” on ${call.date}. Check the time in the matches before finishing; do not save it again.`
+        : `No event titled “${call.title}” is shown on ${call.date}. It was not created${task.calendar?.saveAttempts ? '; you may open the editor and save again (approval required)' : ''}.`,
+      data: JSON.stringify({ found, matches: [...new Set(matches)].slice(0, 10), dayView: url }),
+    };
+    task.memory = appendStep(task.memory, {
+      tool: call.tool,
+      summary: found ? `Event “${call.title}” exists on ${call.date}` : `Event “${call.title}” not found on ${call.date}`,
+      ok: true,
+      ...(found ? { evidence: matches[0] } : {}),
+    });
+    this.#timeline(task, stepId, found ? `Confirmed “${call.title}” is in the calendar` : `“${call.title}” is not in the calendar`, 'completed');
+  }
+
   async #mutate(
     task: Task,
     call: ToolCall,
@@ -1572,19 +2060,53 @@ export class TaskController {
       if (policy.decision !== 'allow') return this.#handlePolicy(task, call, policy, label);
       return this.#transferCode(task, call, stepId);
     }
+    const fingerprint = fingerprintOf(call);
+    const before = task.snapshot;
+    // No-progress guard: never repeat an action that already left this exact page state unchanged.
+    if (task.progress.isForbidden(fingerprint, before?.stateHash)) {
+      task.refusedRepeats += 1;
+      task.lastResult = {
+        tool: call.tool,
+        ok: false,
+        verified: false,
+        errorCategory: 'no_progress',
+        recoverable: task.refusedRepeats < 2,
+        detail: `Not repeated: “${label}” already made no change to this page twice. Try a different approach: observe again, wait_for the expected element, read validation messages, use choose_option/type_text on the right control, or report the blocker.`,
+      };
+      if (task.refusedRepeats >= 2) await this.#stopStalled(task, label);
+      return;
+    }
+    const calendarSave = this.#isCalendarSave(task, call);
+    if (calendarSave && task.calendar?.verified) {
+      task.lastResult = { tool: call.tool, ok: false, errorCategory: 'blocked', detail: `“${task.calendar.title}” already exists in the calendar. Do not save it again.` };
+      return;
+    }
+    if (calendarSave && task.calendar?.needsLookup) {
+      task.lastResult = {
+        tool: call.tool,
+        ok: false,
+        errorCategory: 'blocked',
+        recoverable: true,
+        detail: 'A save was already attempted and its outcome is unconfirmed. Call calendar_find_event first; only save again if the event is not there.',
+      };
+      return;
+    }
     const policy = this.#policy(task, call, response);
     if (policy.decision !== 'allow') return this.#handlePolicy(task, call, policy, label);
 
     if (VISUAL_TOOLS.has(call.tool) && !(await this.#ensureTrustedInput(task))) return;
 
-    const fingerprint = fingerprintOf(call);
-    const before = task.snapshot;
     this.#timeline(task, stepId, label, 'active');
     await this.#checkpoint(task, { tool: call.tool, fingerprint });
     const outcome = await this.#scheduler.run({ fingerprint }, () => this.#execute(task, call));
     if (outcome.status === 'superseded') {
       this.#timeline(task, stepId, `${label} — cancelled before it ran`, 'completed');
       return;
+    }
+    if (calendarSave && task.calendar) {
+      // From here on the event may exist; any retry must look it up first.
+      task.calendar.saveAttempts += 1;
+      task.calendar.needsLookup = true;
     }
     if (outcome.status === 'uncertain') {
       task.memory = appendStep(task.memory, {
@@ -1603,12 +2125,31 @@ export class TaskController {
     }
     const result = outcome.value;
     if (!result.ok) {
-      task.lastResult = { tool: call.tool, ok: false, detail: result.detail };
+      const extras = [
+        result.fieldValue !== undefined ? `Field now holds: “${result.fieldValue.slice(0, 200)}”.` : '',
+        result.options?.length ? `Available options: ${result.options.slice(0, 20).join(' | ')}.` : '',
+        result.validation?.length ? `Validation: ${result.validation.join(' ')}` : '',
+      ].filter(Boolean);
+      task.lastResult = {
+        tool: call.tool,
+        ok: false,
+        verified: false,
+        detail: [result.detail, ...extras].join(' ').slice(0, 2_000),
+        ...(result.errorCategory ? { errorCategory: result.errorCategory } : {}),
+        recoverable: true,
+        pageChanged: false,
+      };
+      if (result.errorCategory === 'stale_element' || /stale|no longer exists/i.test(result.detail)) {
+        // Refresh references before the next decision.
+        task.snapshotFresh = false;
+        task.notes.push('Element references were refreshed; use IDs from the new observation only.');
+      }
       task.memory = appendStep(task.memory, {
         tool: call.tool,
         summary: `${label} — failed: ${result.detail}`.slice(0, 1_000),
         ok: false,
       });
+      this.#noteSpreadsheetEdit(task, call, false);
       this.#timeline(task, stepId, label, 'error', result.detail);
       if (this.#scheduler.repeatCount(fingerprint) >= 3) this.#noteRepeat(task);
       return;
@@ -1637,6 +2178,7 @@ export class TaskController {
     if (verification.verified || result.changed) this.#scheduler.noteProgress();
     if (verification.verified && call.tool === 'type_text')
       this.#markSavedRecords(task, call.text, call.elementId);
+    if (call.tool === 'type_text') this.#noteSpreadsheetEdit(task, call, true);
     if (verification.verified && VISUAL_TOOLS.has(call.tool)) {
       task.memory = {
         ...task.memory,
@@ -1651,14 +2193,45 @@ export class TaskController {
         ? { evidence: verification.evidence }
         : {}),
     });
+    const pageChanged = Boolean(
+      before && afterSnapshot && (before.stateHash && afterSnapshot.stateHash ? before.stateHash !== afterSnapshot.stateHash : before.url !== afterSnapshot.url),
+    );
+    const extras = [
+      result.fieldValue !== undefined && call.tool !== 'type_text' ? `Control shows: “${result.fieldValue.slice(0, 200)}”.` : '',
+      result.options?.length ? `Suggestions offered: ${result.options.slice(0, 15).join(' | ')}.` : '',
+      afterSnapshot?.validation?.length ? `Validation messages on page: ${afterSnapshot.validation.slice(0, 5).join(' | ')}` : '',
+      calendarSave ? 'Save clicked. Confirm with calendar_find_event before finishing; do not click Save again.' : '',
+    ].filter(Boolean);
     task.lastResult = {
       tool: call.tool,
       ok: true,
-      detail: (verification.verified
-        ? `Verified: ${verification.evidence}`
-        : `Done, but not verified: ${verification.reason ?? ''}`
-      ).slice(0, 2_000),
+      verified: verification.verified,
+      pageChanged,
+      ...(afterSnapshot?.validation?.length && !verification.verified ? { errorCategory: 'validation_error' as const } : {}),
+      detail: [
+        verification.verified
+          ? `Verified: ${verification.evidence}`
+          : `Executed, but the intended outcome was not observed: ${verification.reason ?? ''}`,
+        ...extras,
+      ]
+        .join(' ')
+        .slice(0, 2_000),
     };
+    const progress = task.progress.record({
+      fingerprint,
+      beforeHash: before?.stateHash,
+      afterHash: afterSnapshot?.stateHash,
+      verified: verification.verified,
+    });
+    if (pageChanged || verification.verified) task.refusedRepeats = 0;
+    if (progress.forbidRepeat)
+      task.notes.push(
+        `“${label}” did not change the page (${progress.sameActionNoChange}×). Do not repeat it; observe again, wait for loading, check validation, or try a different control.`,
+      );
+    if (progress.exhausted) {
+      await this.#stopStalled(task, label);
+      return;
+    }
     this.#timeline(
       task,
       stepId,
@@ -1668,7 +2241,7 @@ export class TaskController {
     );
     if (call.tool === 'click' || call.tool === 'type_text')
       task.confirmation =
-        task.confirmation && this.#currentFingerprint(task) === task.confirmation.targetFingerprint
+        task.confirmation && this.#currentFingerprint(task, call) === task.confirmation.targetFingerprint
           ? task.confirmation
           : undefined;
     if (this.#scheduler.repeatCount(fingerprint) >= 3) this.#noteRepeat(task);
@@ -1894,6 +2467,35 @@ export class TaskController {
     }
   }
 
+  #isCalendarSave(task: Task, call: ToolCall): boolean {
+    if (!task.calendar || !task.snapshot || !/(^|\.)calendar\.google\.com$/.test((() => {
+      try {
+        return new URL(task.snapshot.url).hostname;
+      } catch {
+        return '';
+      }
+    })()))
+      return false;
+    const elementId = 'elementId' in call ? call.elementId : undefined;
+    const target = elementId ? task.snapshot.elements.find((element) => element.id === elementId) : undefined;
+    return classifyRisk(target, call).category === 'submit_form';
+  }
+
+  /** Stop looping: preserve state and report the specific blocker and next step. */
+  async #stopStalled(task: Task, label: string): Promise<void> {
+    const snapshot = task.snapshot;
+    const blocker = [
+      `I stopped because “${label}” kept leaving the page unchanged.`,
+      snapshot?.dialog?.name ? `A dialog is open: “${snapshot.dialog.name}”.` : '',
+      snapshot?.validation?.length ? `The page shows: ${snapshot.validation.slice(0, 3).join(' | ')}.` : '',
+      'Everything already entered is kept. Check the page, then tell me how to continue.',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    task.memory = addIssue(task.memory, blocker.slice(0, 1_000));
+    await this.#finishTask('partially_completed', blocker.slice(0, 4_000));
+  }
+
   #noteRepeat(task: Task): void {
     task.repeatNotes += 1;
     task.notes.push(
@@ -1914,6 +2516,8 @@ export class TaskController {
     task.memory = addConstraint(task.memory, text, this.#scheduler.instructionVersion);
     task.authorization = extendAuthorization(task.authorization, text);
     task.notes.push(`User changed the instructions (${source}): ${text}`);
+    task.progress.reset();
+    task.refusedRepeats = 0;
     task.confirmation = undefined;
     task.snapshotFresh = false;
     this.#timeline(
@@ -2086,7 +2690,36 @@ export class TaskController {
       .catch(() => undefined);
   }
 
+  #noteSpreadsheetEdit(task: Task, call: { tool: string }, accepted: boolean): void {
+    if (call.tool !== 'type_text' || !isSpreadsheet(task.snapshot)) return;
+    task.notes.push(
+      accepted
+        ? 'That edit changed only the active spreadsheet cell. Next, press_keys Tab for the next column or Enter for the next row before typing again.'
+        : 'The spreadsheet editor rejected another edit of this cell. Press Escape, then press_keys Tab or Enter to leave it. Do not type into the same cell again.',
+    );
+  }
+
   #broadcast(): void {
     this.deps.emit({ type: 'state', task: this.snapshot() });
   }
+}
+
+function isSpreadsheet(snapshot: Pick<PageSnapshot, 'url' | 'elements'> | undefined): boolean {
+  if (!snapshot) return false;
+  try {
+    const url = new URL(snapshot.url);
+    if (url.hostname === 'docs.google.com' && url.pathname.startsWith('/spreadsheets')) return true;
+    if (url.hostname === 'excel.office.com') return true;
+    if (url.hostname.endsWith('.office.com') && /\/excel/i.test(url.pathname)) return true;
+  } catch {
+    /* The page address is not a URL. */
+  }
+  return snapshot.elements.some(
+    (element) => element.kind === 'gridcell' || element.role === 'grid' || element.role === 'gridcell',
+  );
+}
+
+function spreadsheetCue(snapshot: PageSnapshot | undefined): string | undefined {
+  if (!isSpreadsheet(snapshot)) return;
+  return 'Spreadsheet: type a value into the active cell once, then press_keys Tab to the next column or Enter to the next row. Fill across the row before moving down. The name box (a reference like A1) only selects a cell; do not type data into it. If the cell already shows the value, do not type it again.';
 }

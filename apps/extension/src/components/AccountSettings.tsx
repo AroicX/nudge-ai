@@ -291,6 +291,13 @@ export function AccountSettings({
         {section === 'documents' ? (
           <DocumentsLibrary
             documents={workspace.documents}
+            status={workspace.documentStatus ?? {}}
+            onDefault={(id, isDefault) =>
+              void act(
+                () => workspace.setDefaultDocument(id, isDefault),
+                isDefault ? 'Default CV set' : 'Default CV cleared',
+              )
+            }
             query={docQuery}
             onQuery={setDocQuery}
             selected={selectedDocs}
@@ -653,6 +660,8 @@ function ProfileEditor({
 
 function DocumentsLibrary({
   documents,
+  status,
+  onDefault,
   query,
   onQuery,
   selected,
@@ -670,6 +679,8 @@ function DocumentsLibrary({
   onDelete,
 }: {
   documents: MemoryDocument[];
+  status: Record<string, { isDefault: boolean; attachable: boolean; looksLikeCv: boolean; parseStatus: string }>;
+  onDefault(id: string, isDefault: boolean): void;
   query: string;
   onQuery(value: string): void;
   selected: string[];
@@ -792,8 +803,23 @@ function DocumentsLibrary({
                     {kind.toUpperCase()}
                   </span>
                   <strong>{doc.filename}</strong>
-                  <small>{doc.text.length.toLocaleString()} characters</small>
+                  <small>
+                    {doc.text.length.toLocaleString()} characters
+                    {status[doc.id] && !status[doc.id]!.attachable ? ' · text only (re-upload to attach to forms)' : ''}
+                  </small>
                 </button>
+                {status[doc.id]?.looksLikeCv || status[doc.id]?.isDefault ? (
+                  <button
+                    type="button"
+                    className="doc-card__default"
+                    aria-pressed={Boolean(status[doc.id]?.isDefault)}
+                    aria-label={status[doc.id]?.isDefault ? `${doc.filename} is your default CV` : `Use ${doc.filename} as default CV`}
+                    disabled={pending}
+                    onClick={() => onDefault(doc.id, !status[doc.id]?.isDefault)}
+                  >
+                    {status[doc.id]?.isDefault ? 'Default CV' : 'Set as default CV'}
+                  </button>
+                ) : null}
                 <ConfirmDelete
                   title="Delete this reference?"
                   description="Nudge will no longer use this saved document as a reference."

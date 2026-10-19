@@ -147,6 +147,37 @@ describe('SidePanel', () => {
     expect(onStop).toHaveBeenCalledOnce();
   });
 
+  it('releases the stop control after the task is completed so a new prompt can be sent', () => {
+    const onSend = vi.fn();
+    const onStop = vi.fn();
+    render(
+      <SidePanel
+        busy={false}
+        controller={{
+          taskId: 'done',
+          status: 'completed',
+          plan: [],
+          timeline: [{ id: 'final', label: 'Task completed', status: 'completed' }],
+          memorySummary: { recordCount: 0, issues: [] },
+          capability: 'dom_only',
+        }}
+        conversation={[
+          { id: 'user', role: 'user', text: 'Open pull requests', createdAt: '2026-10-18' },
+        ]}
+        onSend={onSend}
+        onStop={onStop}
+        onSaveKey={vi.fn()}
+        onClearKey={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+    expect(onStop).not.toHaveBeenCalled();
+    const input = screen.getByLabelText('Tell Nudge what to do');
+    fireEvent.change(input, { target: { value: 'Open the first one' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(onSend).toHaveBeenCalledWith('Open the first one');
+  });
+
   it('opens settings from the header and can replace or clear a session-only provider key', () => {
     const onSaveKey = vi.fn();
     const onClearKey = vi.fn();

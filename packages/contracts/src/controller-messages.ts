@@ -162,6 +162,21 @@ export const ContentRequestSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('read_text'), elementId: ElementIdSchema.optional() }).strict(),
   z.object({ type: z.literal('inspect'), elementId: ElementIdSchema }).strict(),
+  z
+    .object({
+      type: z.literal('attach_file'),
+      elementId: ElementIdSchema,
+      documentId: z.string().min(1).max(120),
+      generation: z.number().int().nonnegative(),
+      file: z
+        .object({
+          name: z.string().min(1).max(250),
+          mime: z.string().min(1).max(200),
+          base64: z.string().min(1).max(8_000_000),
+        })
+        .strict(),
+    })
+    .strict(),
 ]);
 
 export const ContentResultSchema = z
@@ -201,6 +216,15 @@ export const ContentResultSchema = z
       .strict()
       .optional(),
     ended: z.enum(['stopped', 'end_reached', 'max_duration', 'navigated']).optional(),
+    /** Value the application still holds after the interaction settled (read back). */
+    fieldValue: z.string().max(2_000).optional(),
+    /** Visible options offered by a dropdown/autocomplete when the requested one was not found. */
+    options: z.array(z.string().max(300)).max(50).optional(),
+    /** Validation messages visible after the interaction. */
+    validation: z.array(z.string().max(500)).max(20).optional(),
+    errorCategory: z
+      .enum(['stale_element', 'not_found', 'not_visible', 'disabled', 'value_rejected', 'validation_error', 'timeout', 'unsupported'])
+      .optional(),
   })
   .strict();
 
