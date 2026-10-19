@@ -415,24 +415,8 @@ export function SidePanel({
             </div>
           </section>
         ) : null}
-        {fullPage && controller?.pendingQuestion && !controller.tabChoices?.length && !fallback ? (
-          <Questions
-            items={[{ id: 'clarify', type: 'single', prompt: controller.pendingQuestion, options: [] }]}
-            onSubmit={(submission) => {
-              const answer = submission[0]?.answer;
-              if (!answer || Array.isArray(answer) || !answer.value) return;
-              onSend(String(answer.label));
-            }}
-          >
-            <QuestionsHeader>
-              <QuestionsTitle />
-            </QuestionsHeader>
-            <Question id="clarify">
-              <QuestionOptions>
-                <QuestionOther placeholder="Your answer" />
-              </QuestionOptions>
-            </Question>
-          </Questions>
+        {controller?.pendingQuestion && !controller.tabChoices?.length && !fallback ? (
+          <FollowUp question={controller.pendingQuestion} onSend={onSend} />
         ) : null}
         {fullPage && controller?.tabChoices?.length ? (
           <Questions
@@ -512,14 +496,23 @@ export function SidePanel({
             conversation.map((turn, index) => (
               <Fragment key={turn.id}>
                 <article className={`message message--${turn.role}`}>
-                  <p className={`turn turn--${turn.role}`}>{turn.text}</p>
-                  {turn.images?.length ? (
-                    <div className="turn-images" aria-label="Attached images">
-                      {turn.images.map((image, imageIndex) => (
-                        <img key={`${turn.id}:${imageIndex}`} src={image.thumbnail} alt={image.name} />
-                      ))}
-                    </div>
-                  ) : null}
+                  <div className={`turn turn--${turn.role}`}>
+                    {turn.images?.length ? (
+                      <div className="turn-images" aria-label="Attached images">
+                        {turn.images.map((image, imageIndex) => (
+                          <Image key={`${turn.id}:${imageIndex}`} src={image.thumbnail} alt={image.name}>
+                            <ImagePreview />
+                            <ImageLightbox>
+                              <ImageLightboxOverlay />
+                              <ImageLightboxPreview alt={image.name} />
+                              <ImageLightboxClose />
+                            </ImageLightbox>
+                          </Image>
+                        ))}
+                      </div>
+                    ) : null}
+                    <p>{turn.text}</p>
+                  </div>
                   {turn.sources?.length ? (
                     <div className="source-chips">
                       {turn.sources.map((source) => (
@@ -740,6 +733,42 @@ export function SidePanel({
         />
       </main>
     </div>
+  );
+}
+
+function FollowUp({ question, onSend }: { question: string; onSend(text: string): void }) {
+  const proceed = /stopped repeating the blocked step|how would you like to proceed/i.test(question);
+  const options = proceed
+    ? [
+        { value: 'Type it anyway', label: 'Type it anyway' },
+        { value: 'Skip this step', label: 'Skip this step' },
+        { value: 'Stop', label: 'Stop' },
+      ]
+    : [];
+  return (
+    <Questions
+      items={[{ id: 'clarify', type: 'single', required: true, prompt: question, options }]}
+      onSubmit={(submission) => {
+        const answer = submission[0]?.answer;
+        if (!answer || Array.isArray(answer)) return;
+        const text = String(answer.label ?? '').trim();
+        if (text && text !== '[No Preference]') onSend(text);
+      }}
+    >
+      <QuestionsHeader>
+        <QuestionsTitle />
+      </QuestionsHeader>
+      <Question id="clarify">
+        <QuestionOptions>
+          {options.map((option) => (
+            <QuestionOption key={option.value} value={option.value}>
+              {option.label}
+            </QuestionOption>
+          ))}
+          <QuestionOther placeholder="Your answer" />
+        </QuestionOptions>
+      </Question>
+    </Questions>
   );
 }
 

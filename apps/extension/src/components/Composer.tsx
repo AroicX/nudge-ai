@@ -100,8 +100,8 @@ export function Composer({
         <div className="composer__attachments" aria-label="Attached images">
           {images.map((image) => (
             <figure key={image.id} className={`composer__image composer__image--${image.status}`}>
-              {image.turn ? (
-                <img src={image.turn.thumbnail} alt={image.name} />
+              {image.input?.dataUrl || image.turn ? (
+                <img src={image.input?.dataUrl ?? image.turn?.thumbnail} alt={image.name} />
               ) : (
                 <span className="composer__image-progress" role="progressbar" aria-label={`Preparing ${image.name}`}>
                   <Loader2 size={16} className="spin" />

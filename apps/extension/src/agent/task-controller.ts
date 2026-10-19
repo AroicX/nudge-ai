@@ -879,6 +879,8 @@ export class TaskController {
     // Cancellation can replace a pending success/failure, never the other way around.
     const finishing = { outcome };
     task.finishing = finishing;
+    // A finished run must not plan another step or keep the stop control armed.
+    this.#again = false;
     this.deps.otp.cancelAll();
     await this.deps.cdp?.detach().catch(() => undefined);
     if (
@@ -908,7 +910,19 @@ export class TaskController {
     }[outcome] as TaskEvent;
     task.status = transition(task.status, event);
     task.completedAt = this.deps.clock();
-    this.#timeline(task, 'final', summary, outcome === 'failed' ? 'error' : 'completed');
+    const finishedAt = task.completedAt;
+    task.timeline = task.timeline.map((step) =>
+      step.status === 'active'
+        ? { ...step, status: 'completed' as const, completedAt: step.completedAt ?? finishedAt }
+        : step,
+    );
+    this.#timeline(
+      task,
+      'final',
+      outcome === 'completed' ? 'Task completed' : summary,
+      outcome === 'failed' ? 'error' : 'completed',
+      outcome === 'completed' ? summary : undefined,
+    );
     this.#teardown(task);
     await this.deps.checkpoints.clear().catch(() => undefined);
     this.deps.emit({ type: 'milestone', text: summary.slice(0, 1_000) });
@@ -977,8 +991,6 @@ export class TaskController {
     let response: PlannerResponse;
     const abort = new AbortController();
     this.#planAbort = abort;
-    this.#timeline(task, `plan_${task.stepCount}`, 'Choosing the next step', 'active');
-    this.#broadcast();
     try {
       response = await this.deps.planner.plan(request, abort.signal, this.#providerOverride(task));
     } catch (error) {
@@ -986,16 +998,7 @@ export class TaskController {
       if (this.#offerFallback(task, error)) return;
       throw error;
     }
-    if (!this.#scheduler.isCurrent(ticket) || task.status !== 'running') {
-      this.#timeline(
-        task,
-        `plan_${task.stepCount}`,
-        'Discarded a step planned before your change',
-        'completed',
-      );
-      return;
-    }
-    this.#timeline(task, `plan_${task.stepCount}`, 'Chose the next step', 'completed');
+    if (!this.#scheduler.isCurrent(ticket) || task.status !== 'running') return;
     task.stepCount += 1;
     if (response.planUpdate) {
       task.memory = applyPlanUpdate(task.memory, response.planUpdate);
@@ -1091,6 +1094,8 @@ export class TaskController {
   #plannerRequest(task: Task, observation: Observation | null): PlannerRequest {
     const records = task.records.list();
     const notes = [...task.notes];
+    const sheet = spreadsheetCue(observation?.snapshot);
+    if (sheet) notes.push(sheet);
     if (records.length) {
       notes.push(
         `${records.length} records collected so far (${task.records.unsaved().length} not yet written to a destination). Latest: ${records
@@ -2144,6 +2149,7 @@ export class TaskController {
         summary: `${label} — failed: ${result.detail}`.slice(0, 1_000),
         ok: false,
       });
+      this.#noteSpreadsheetEdit(task, call, false);
       this.#timeline(task, stepId, label, 'error', result.detail);
       if (this.#scheduler.repeatCount(fingerprint) >= 3) this.#noteRepeat(task);
       return;
@@ -2172,6 +2178,7 @@ export class TaskController {
     if (verification.verified || result.changed) this.#scheduler.noteProgress();
     if (verification.verified && call.tool === 'type_text')
       this.#markSavedRecords(task, call.text, call.elementId);
+    if (call.tool === 'type_text') this.#noteSpreadsheetEdit(task, call, true);
     if (verification.verified && VISUAL_TOOLS.has(call.tool)) {
       task.memory = {
         ...task.memory,
@@ -2683,7 +2690,36 @@ export class TaskController {
       .catch(() => undefined);
   }
 
+  #noteSpreadsheetEdit(task: Task, call: { tool: string }, accepted: boolean): void {
+    if (call.tool !== 'type_text' || !isSpreadsheet(task.snapshot)) return;
+    task.notes.push(
+      accepted
+        ? 'That edit changed only the active spreadsheet cell. Next, press_keys Tab for the next column or Enter for the next row before typing again.'
+        : 'The spreadsheet editor rejected another edit of this cell. Press Escape, then press_keys Tab or Enter to leave it. Do not type into the same cell again.',
+    );
+  }
+
   #broadcast(): void {
     this.deps.emit({ type: 'state', task: this.snapshot() });
   }
+}
+
+function isSpreadsheet(snapshot: Pick<PageSnapshot, 'url' | 'elements'> | undefined): boolean {
+  if (!snapshot) return false;
+  try {
+    const url = new URL(snapshot.url);
+    if (url.hostname === 'docs.google.com' && url.pathname.startsWith('/spreadsheets')) return true;
+    if (url.hostname === 'excel.office.com') return true;
+    if (url.hostname.endsWith('.office.com') && /\/excel/i.test(url.pathname)) return true;
+  } catch {
+    /* The page address is not a URL. */
+  }
+  return snapshot.elements.some(
+    (element) => element.kind === 'gridcell' || element.role === 'grid' || element.role === 'gridcell',
+  );
+}
+
+function spreadsheetCue(snapshot: PageSnapshot | undefined): string | undefined {
+  if (!isSpreadsheet(snapshot)) return;
+  return 'Spreadsheet: type a value into the active cell once, then press_keys Tab to the next column or Enter to the next row. Fill across the row before moving down. The name box (a reference like A1) only selects a cell; do not type data into it. If the cell already shows the value, do not type it again.';
 }

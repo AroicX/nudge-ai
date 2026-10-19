@@ -70,6 +70,11 @@ describe('evaluateToolCall', () => {
     ).toBe('block');
   });
 
+  it('types into an ordinary field without a separate fill approval', () => {
+    const type = (id: string): ToolCall => ({ tool: 'type_text', tabId: 1, elementId: `doc_1:${id}`, text: 'Asake', mode: 'replace' });
+    expect(evaluateToolCall(ctx(), type('1'))).toEqual({ decision: 'allow' });
+  });
+
   it('blocks typing into password and card fields', () => {
     const type = (id: string): ToolCall => ({ tool: 'type_text', tabId: 1, elementId: `doc_1:${id}`, text: 'x', mode: 'replace' });
     const fillCtx = ctx({ authorization: auth(['read', 'navigate', 'fill']) });

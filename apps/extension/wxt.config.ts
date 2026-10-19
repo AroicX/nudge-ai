@@ -54,7 +54,8 @@ export default defineConfig({
   }),
   manifest: {
     name: 'Nudge',
-    description: 'A fast, conversational browser assistant that acts with you in control.',
+    version: '0.1.0',
+    description: 'Browser companion that follows your instructions on websites. Public alpha.',
     permissions,
     host_permissions: ['http://*/*', 'https://*/*'],
     icons: {

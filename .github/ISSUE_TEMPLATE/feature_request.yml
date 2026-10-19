@@ -1,0 +1,31 @@
+name: Feature request
+description: A change to Nudge’s public alpha
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you were trying to do, without private page content.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Browser tasks
+        - Chat and memory
+        - OpenAI
+        - Ollama or local voice
+        - ChatGPT plan
+        - Docs or setup
+    validations:
+      required: true

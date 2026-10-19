@@ -77,7 +77,7 @@ const STATUS: Record<string, string> = {
   waiting_for_user: 'Waiting for you',
   waiting_for_confirmation: 'Waiting for your OK',
   paused: 'Paused',
-  completed: 'Done',
+  completed: 'Ready',
   partially_completed: 'Partly done',
   failed: 'Stopped — could not finish',
   cancelled: 'Stopped',
@@ -277,7 +277,13 @@ function App() {
       return;
     }
     if (message.type === 'milestone') {
-      store.setStatus(message.text.slice(0, 200));
+      const current = useNudgeStore.getState().controller?.status;
+      if (current === 'completed') store.setStatus('Ready');
+      else if (
+        !current ||
+        !['partially_completed', 'failed', 'cancelled'].includes(current)
+      )
+        store.setStatus(message.text.slice(0, 200));
       if (localProviderRef.current) localVoiceRef.current?.speakMilestone(message.text);
       else voiceTransportRef.current?.speakMilestone?.(message.text);
       return;
@@ -830,7 +836,10 @@ function App() {
           )
           .catch(() => state.setStatus('Could not open the full-page chat. Please try again.'));
       }}
-      busy={state.busy || chatPending}
+      busy={
+        chatPending ||
+        ['planning', 'running', 'waiting_for_page'].includes(state.controller?.status ?? '')
+      }
       scheduledTasks={scheduledTasks}
       onCancelSchedule={(id) => controller.cancelSchedule(id)}
       onManageSchedule={(id, action, changes) => controller.manageSchedule(id, action, changes)}

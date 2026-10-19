@@ -101,6 +101,26 @@ describe('history store', () => {
     expect(storage.remove).toHaveBeenCalledWith('nudgeConversationV1');
   });
 
+  it('keeps an attached image on the saved chat turn', async () => {
+    const storage = memoryStorage();
+    const thumbnail = 'data:image/jpeg;base64,AAAA';
+    await createHistoryStore(storage).saveHistory({
+      version: 1,
+      turns: [
+        {
+          id: 'turn-photo',
+          role: 'user',
+          text: 'What is this?',
+          createdAt: '2026-10-18T20:00:00.000Z',
+          images: [{ name: 'shot.jpg', mime: 'image/jpeg', width: 32, height: 32, thumbnail }],
+          sources: [],
+        },
+      ],
+      timeline: [],
+    });
+    expect((storage.value() as PersistedConversation).turns[0]?.images?.[0]?.thumbnail).toBe(thumbnail);
+  });
+
   it('collapses duplicate sources by normalized URL', async () => {
     const storage = memoryStorage();
     await createHistoryStore(storage).saveHistory({

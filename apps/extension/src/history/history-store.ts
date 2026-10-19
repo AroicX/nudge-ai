@@ -1,6 +1,7 @@
 import {
   PersistedConversationSchema,
   SourceReferenceSchema,
+  TurnImageSchema,
   type PersistedConversation,
   type PersistedTurn,
   type SourceReference,
@@ -59,6 +60,9 @@ function sanitizeTurn(turn: PersistedTurn): PersistedTurn {
     const safe = sanitizeSource(source);
     if (safe) sources.set(new URL(safe.url).href, safe);
   }
+  const images = (turn.images ?? [])
+    .map((image) => TurnImageSchema.safeParse(image))
+    .flatMap((parsed) => (parsed.success ? [parsed.data] : []));
   return {
     id: turn.id,
     role: turn.role,
@@ -81,6 +85,7 @@ function sanitizeTurn(turn: PersistedTurn): PersistedTurn {
       : {}),
     ...(turn.provider ? { provider: turn.provider } : {}),
     ...(turn.model ? { model: turn.model } : {}),
+    ...(images.length ? { images } : {}),
     sources: [...sources.values()],
   };
 }
