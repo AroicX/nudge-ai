@@ -27,5 +27,3 @@ This list separates what the alpha contains from what it does not. It is not a d
 
 - Tighten spreadsheet and form recovery when a site rejects synthetic input.
 - Document a Windows data directory after it is tested.
-- Publish a private vulnerability reporting path on GitHub.
-- Confirm the copyright name on the MIT license before the repository is public.

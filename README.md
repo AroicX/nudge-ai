@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/png/nudge-logo-on-dark.png">
+    <img src="assets/brand/png/nudge-logo-840x224.png" alt="Nudge" width="320">
+  </picture>
+</p>
+
 # Nudge
 
 Nudge is an open-source browser companion for Chrome. You describe an outcome in text, dictation, or a voice call. Nudge reads the page, plans one browser action at a time, checks that action against your instruction, runs it, and checks the result. It stops when the task is done, when it needs you, or when you stop it.
@@ -60,7 +67,13 @@ The pairing value is compiled into the extension. It is not an API key. It lets 
 
 An OpenAI key in `.env` is the server default. A key entered in Provider settings is kept in the server process memory and cleared when that process stops. The extension bundle does not contain the API key.
 
-Ollama must already be running. Nudge does not download models. If Ollama cannot produce a valid browser decision, the task stops and can offer **Use OpenAI for this task**. That choice is for the current task only.
+Ollama must already be running at `http://127.0.0.1:11434` with a model you have pulled that can call tools. Nudge does not download models. If Ollama cannot produce a valid browser decision, the task stops and can offer **Use OpenAI for this task**. That choice is for the current task only.
+
+## Voice and microphone
+
+Chrome asks for the microphone only after you open Nudge’s setup page and choose **Allow microphone**. Dictation and realtime calls with an OpenAI key send audio to OpenAI and are billed as API usage.
+
+Local calls stay on this computer only when the [local voice stack](docs/local-voice.md) is installed and Ollama is selected. That stack is documented for Apple Silicon. It uses Whisper, Qwen, and Kokoro on `127.0.0.1:4318`, separate from the main backend. Without it, voice uses the OpenAI key.
 
 ## Example requests
 
@@ -101,14 +114,26 @@ pnpm test:accept    # scripted planner, no live provider calls
 
 `pnpm test:accept` uses `NUDGE_PLANNER=scripted`, which the server refuses when `NODE_ENV=production`.
 
+`./scripts/package-alpha.sh` writes a gitignored unpacked build and zip under `release/`. That archive still needs this server. It is not a Chrome Web Store package.
+
 ## More documentation
 
 - [Architecture](docs/architecture.md)
 - [Browser agent](docs/browser-agent.md)
+- [ChatGPT plan](docs/chatgpt-plan.md)
+- [Local voice](docs/local-voice.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Roadmap](docs/roadmap.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security](SECURITY.md)
 - [Privacy](PRIVACY.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 - [Draft release notes](docs/release/0.1.0-alpha.1.md)
+
+## License
+
+[MIT](LICENSE). Copyright (c) 2026 Nudge by AroicX Labs Ltd.
+
+Security and conduct reports: [aroicx@gmail.com](mailto:aroicx@gmail.com).
