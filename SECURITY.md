@@ -23,12 +23,6 @@ Nudge can click, type, and navigate websites in the browser profile where it is 
 
 ## Reporting a vulnerability
 
-This repository does not yet have a published private contact. Do not open a public GitHub issue for a vulnerability, and do not email a guessed address.
+Email [aroicx@gmail.com](mailto:aroicx@gmail.com). Do not open a public GitHub issue for a vulnerability.
 
-Before the repository is public, the maintainer should enable GitHub private vulnerability reporting:
-
-1. Open the repository on GitHub.
-2. Settings → Advanced Security → Private vulnerability reporting → Enable.
-3. Put that choice in this file, replacing this section with the real reporting path.
-
-Until that exists, send the report only to the maintainer through a channel you already use with them. Include the version, the component, and a minimal reproduction. Omit live keys, tokens, and personal page content.
+Include the Nudge version, the component, and a minimal reproduction. Omit live keys, tokens, and personal page content.

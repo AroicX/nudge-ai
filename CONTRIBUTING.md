@@ -71,4 +71,4 @@ Do not attach API keys, cookies, password fields, one-time codes, full page dump
 
 ## Private reports
 
-Security issues should not go in a public issue. See [SECURITY.md](SECURITY.md). There is no published security email yet.
+Security issues should not go in a public issue. Email [aroicx@gmail.com](mailto:aroicx@gmail.com). See [SECURITY.md](SECURITY.md).

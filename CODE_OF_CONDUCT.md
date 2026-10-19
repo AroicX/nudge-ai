@@ -58,13 +58,12 @@ representative at an online or offline event.
 
 ## Enforcement
 
-No enforcement contact is published yet. Do not invent one. Before this
-repository is public, the maintainer must replace this paragraph with a real
-contact method. Until then, conduct reports wait, and security reports follow
+Instances of abusive, harassing, or otherwise unacceptable behavior may be
+reported to the community leaders responsible for enforcement at
+[aroicx@gmail.com](mailto:aroicx@gmail.com). Security reports follow
 [SECURITY.md](SECURITY.md).
 
-All complaints will be reviewed and investigated promptly and fairly once a
-contact exists.
+All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
 reporter of any incident.

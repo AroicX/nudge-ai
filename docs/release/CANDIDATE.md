@@ -59,9 +59,8 @@ Public OAuth client registration for Sign in with ChatGPT is dynamic client regi
 
 ## Remaining blockers before publication
 
-- Confirm the copyright line. `LICENSE` says `Copyright (c) 2026 Aroicx` because that is the Git author handle. It is not a confirmed legal name.
-- No private vulnerability contact. GitHub private vulnerability reporting is not enabled because the repository is not public. `SECURITY.md` says how to turn it on. Do not invent an email.
-- `CODE_OF_CONDUCT.md` has no enforcement contact.
+Copyright is `Copyright (c) 2026 Nudge by AroicX Labs Ltd`. Security and conduct reports go to aroicx@gmail.com.
+
 - Commit `a40a7ba` still contains the old `.env.example` pairing sample. Removing it from the working tree is not enough. It is not an API key. Rotate it if it was ever used for real, and decide whether to rewrite history. History was not rewritten here.
 - Windows SQLite paths are untested.
 - Live provider, voice, and website checks were not run.
@@ -92,9 +91,6 @@ Body: `docs/release/0.1.0-alpha.1.md`
 
 ## Publication checklist
 
-- Confirm the copyright holder name.
-- Add a Code of Conduct contact.
-- Enable GitHub private vulnerability reporting and update `SECURITY.md`.
 - Decide whether to rewrite history for the old example pairing value in `a40a7ba`.
 - Commit the candidate on a review branch. Do not force-push.
 - Generate a new pairing secret for any binary you attach to a public release.
